@@ -1,0 +1,7 @@
+anthropic
+flask
+requests
+gspread
+google-auth
+python-dotenv
+gunicorn
