@@ -1,1 +1,1 @@
-web: gunicorn shop_with_sheet:app
+web: gunicorn shop_with_sheet:app --bind 0.0.0.0:$PORT
