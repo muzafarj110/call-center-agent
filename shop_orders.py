@@ -91,12 +91,19 @@ Shop hours: 8am to 10pm
 Keep replies short and friendly.
 If customer is angry — say manager will call back shortly.
 
-CRITICAL RULE: When customer provides delivery address,
-you MUST end your reply with exactly this format on a new line:
-ORDER_CONFIRMED:Rice 5kg x1|35|Villa 24 Apartment 102
+CRITICAL RULE - YOU MUST FOLLOW THIS EXACTLY:
+When customer gives delivery address, your reply MUST end with
+this exact text on the last line - no exceptions:
+ORDER_CONFIRMED:[items]|[total number only]|[address]
 
-Never skip this. Always include ORDER_CONFIRMED at the end
-when you have items, total and address."""
+Example:
+ORDER_CONFIRMED:Rice 5kg x1, Milk 1L x2|47|Villa 24 Apartment 102
+
+Rules:
+- Total must be number only example: 35 not 35 AED
+- No spaces around the | symbol
+- This must be the very last line of your reply
+- Never use words like Order Confirmed without this exact format"""
 
 
 def send_whatsapp_message(to, message):
