@@ -4,7 +4,6 @@ import requests
 import gspread
 from google.oauth2.service_account import Credentials
 import os
-import json
 import random
 import string
 from datetime import datetime
@@ -21,7 +20,6 @@ SHEET_ID = "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM"
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
-pending_orders = {}
 
 def get_sheet():
     scope = [
@@ -51,7 +49,8 @@ def save_order(phone, items, total, address):
     try:
         sh = get_sheet()
         worksheet = sh.worksheet("Orders")
-        order_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        order_id = ''.join(random.choices(
+            string.ascii_uppercase + string.digits, k=6))
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         worksheet.append_row([
             order_id,
@@ -62,6 +61,7 @@ def save_order(phone, items, total, address):
             "New",
             now
         ])
+        print(f"Order saved! ID: {order_id}")
         return order_id
     except Exception as e:
         print(f"Order save error: {e}")
@@ -77,10 +77,9 @@ Your job:
 1. Greet the customer warmly
 2. Help them find products and prices
 3. Take their order step by step
-4. Ask for their delivery address
+4. Ask for delivery address
 5. Calculate total price including delivery
-6. Confirm the order clearly
-7. When order is confirmed say exactly: ORDER_CONFIRMED:[items]|[total]|[address]
+6. Confirm the order
 
 Products:
 {products}
@@ -104,7 +103,6 @@ Rules:
 - No spaces around the | symbol
 - This must be the very last line of your reply
 - Never use words like Order Confirmed without this exact format"""
-
 
 def send_whatsapp_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_ID}/messages"
@@ -142,6 +140,7 @@ def get_ai_reply(sender, message):
     )
 
     reply = response.content[0].text
+    print(f"AI Reply: {reply}")
 
     conversations[sender].append({
         "role": "assistant",
@@ -151,14 +150,16 @@ def get_ai_reply(sender, message):
     # Check if order is confirmed
     if "ORDER_CONFIRMED:" in reply:
         try:
+            print("Order confirmation detected!")
             order_data = reply.split("ORDER_CONFIRMED:")[1].strip()
             parts = order_data.split("|")
             items = parts[0]
             total = parts[1]
             address = parts[2]
+            print(f"Items: {items}, Total: {total}, Address: {address}")
             order_id = save_order(sender, items, total, address)
             reply = reply.split("ORDER_CONFIRMED:")[0].strip()
-            reply += f"\n\n✅ Order confirmed!\n📦 Order ID: {order_id}\n🚚 We will deliver soon!"
+            reply += f"\n\n✅ Order confirmed!\n📦 Order ID: {order_id}\n🚚 We will deliver to you soon!\n💵 Total: {total} AED\nThank you for shopping with us!"
         except Exception as e:
             print(f"Order processing error: {e}")
 
@@ -187,6 +188,14 @@ def webhook():
             if message["type"] == "text":
                 text = message["text"]["body"]
                 print(f"Message from {sender}: {text}")
+
+                # Reset conversation
+                if text.lower() == "/start":
+                    conversations[sender] = []
+                    send_whatsapp_message(
+                        sender, "Starting fresh! How can I help you?")
+                    return "OK", 200
+
                 reply = get_ai_reply(sender, text)
                 send_whatsapp_message(sender, reply)
                 print(f"Reply sent: {reply}")
