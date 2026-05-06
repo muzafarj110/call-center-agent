@@ -91,8 +91,13 @@ Shop hours: 8am to 10pm
 Keep replies short and friendly.
 If customer is angry — say manager will call back shortly.
 
-Important: When customer confirms order, end your message with:
-ORDER_CONFIRMED:[list of items]|[total amount]|[delivery address]"""
+CRITICAL RULE: When customer provides delivery address,
+you MUST end your reply with exactly this format on a new line:
+ORDER_CONFIRMED:Rice 5kg x1|35|Villa 24 Apartment 102
+
+Never skip this. Always include ORDER_CONFIRMED at the end
+when you have items, total and address."""
+
 
 def send_whatsapp_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_ID}/messages"
