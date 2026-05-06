@@ -21,6 +21,7 @@ SHEET_ID = "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM"
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
 waiting_confirmation = {}
+order_stage = {}
 
 def get_sheet():
     scope = [
@@ -39,7 +40,8 @@ def get_products():
         records = worksheet.get_all_records()
         products = ""
         for row in records:
-            stock_status = "In Stock" if int(row['Stock']) > 0 else "Out of Stock"
+            stock_status = "In Stock" if int(
+                row['Stock']) > 0 else "Out of Stock"
             products += f"- {row['Product']} -- {row['Price_AED']} AED -- {stock_status}\n"
         return products
     except Exception as e:
@@ -119,32 +121,46 @@ Conversation:
         print(f"Extract error: {e}")
         return None
 
+def is_address(text):
+    address_keywords = [
+        "villa", "apartment", "flat", "building", "street",
+        "road", "near", "behind", "opposite", "floor",
+        "house", "area", "district", "city", "tower",
+        "compound", "block", "unit", "office", "shop"
+    ]
+    text_lower = text.lower()
+    return any(keyword in text_lower for keyword in address_keywords)
+
+def is_confirmation(text):
+    confirm_words = [
+        "yes", "confirm", "ok", "okay", "sure",
+        "proceed", "place order", "confirmed",
+        "yes please", "yep", "yeah", "go ahead",
+        "do it", "correct", "right", "accept"
+    ]
+    return text.lower().strip() in confirm_words
+
 SHOP_NAME = "Fresh Mart Supermarket"
 
 def get_system_prompt():
     products = get_products()
     return f"""You are a friendly shop assistant for {SHOP_NAME}.
 
-STRICT ORDER RULES - NEVER BREAK THESE:
-1. Greet customer warmly
-2. Help them choose products from the list
-3. Ask for delivery address
-4. Show clear order summary with total price
-5. ALWAYS end with this exact question: "Shall I confirm your order? Reply YES to confirm."
-6. NEVER say "Order Confirmed" or "Order Placed" yourself
-7. NEVER confirm the order yourself
-8. ALWAYS wait for customer to reply YES
-9. If customer gives address - show summary then ask "Shall I confirm your order? Reply YES to confirm."
-10. You are not allowed to confirm any order - only the system confirms after YES
+YOUR ONLY JOB:
+1. Greet customer
+2. Help them choose products
+3. When they are done choosing ask for delivery address
+4. When customer gives address - show order summary with total
+5. End your message with exactly: "Shall I confirm your order? Reply YES to confirm."
+6. Stop there - do not confirm the order yourself
 
-Products available:
+Products:
 {products}
 
-Delivery charge: 10 AED
-Free delivery on orders above 100 AED
-Shop hours: 8am to 10pm
-Keep replies short and friendly.
-If customer is angry - say manager will call back shortly."""
+Delivery: 10 AED
+Free delivery above 100 AED
+Hours: 8am-10pm
+Keep replies short and friendly."""
 
 def send_whatsapp_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_ID}/messages"
@@ -191,15 +207,6 @@ def get_ai_reply(sender, message):
 
     return reply
 
-def is_confirmation(text):
-    confirm_words = [
-        "yes", "confirm", "ok", "okay", "sure",
-        "proceed", "place order", "confirmed",
-        "yes please", "yep", "yeah", "go ahead",
-        "do it", "correct", "right", "accept"
-    ]
-    return text.lower().strip() in confirm_words
-
 @app.route("/webhook", methods=["GET"])
 def verify():
     mode = request.args.get("hub.mode")
@@ -228,6 +235,7 @@ def webhook():
                 if text.lower() == "/start":
                     conversations[sender] = []
                     waiting_confirmation[sender] = False
+                    order_stage[sender] = "shopping"
                     send_whatsapp_message(
                         sender,
                         f"Welcome to {SHOP_NAME}! How can I help you today?")
@@ -249,6 +257,7 @@ def webhook():
                         if order_id:
                             waiting_confirmation[sender] = False
                             conversations[sender] = []
+                            order_stage[sender] = "shopping"
                             reply = (
                                 f"Your order has been placed successfully!\n\n"
                                 f"Order ID: {order_id}\n"
@@ -263,7 +272,7 @@ def webhook():
                         else:
                             reply = (
                                 "Sorry, there was a problem saving your order. "
-                                "Please type /start and try again or call us directly."
+                                "Please type /start and try again."
                             )
                     else:
                         reply = (
@@ -274,13 +283,24 @@ def webhook():
                     send_whatsapp_message(sender, reply)
                     return "OK", 200
 
-                # Normal conversation
+                # Customer says NO to confirmation
+                if waiting_confirmation.get(sender) and text.lower() in ["no", "cancel", "stop"]:
+                    waiting_confirmation[sender] = False
+                    send_whatsapp_message(
+                        sender,
+                        "No problem! Your order has been cancelled. Type /start to start a new order.")
+                    return "OK", 200
+
+                # Normal conversation with AI
                 reply = get_ai_reply(sender, text)
 
-                # Check if agent asked for YES confirmation
-                if "shall i confirm your order" in reply.lower():
+                # If address detected - set waiting for confirmation
+                if is_address(text) and not waiting_confirmation.get(sender):
                     waiting_confirmation[sender] = True
-                    print(f"Waiting for YES from {sender}")
+                    print(f"Address detected! Waiting for YES from {sender}")
+                    # Add confirmation request if AI did not include it
+                    if "shall i confirm" not in reply.lower():
+                        reply += "\n\nShall I confirm your order? Reply YES to confirm or NO to cancel."
 
                 send_whatsapp_message(sender, reply)
 
