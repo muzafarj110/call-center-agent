@@ -21,7 +21,6 @@ SHEET_ID = "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM"
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
 waiting_confirmation = {}
-order_stage = {}
 
 def get_sheet():
     scope = [
@@ -96,7 +95,7 @@ Conversation:
         )
 
         result = response.content[0].text.strip()
-        print(f"Extracted order details: {result}")
+        print(f"Extracted: {result}")
 
         if "INCOMPLETE" in result:
             return None
@@ -121,15 +120,45 @@ Conversation:
         print(f"Extract error: {e}")
         return None
 
+def get_order_summary(sender):
+    try:
+        history = conversations.get(sender, [])
+        conversation_text = ""
+        for msg in history:
+            role = "Customer" if msg["role"] == "user" else "Agent"
+            conversation_text += f"{role}: {msg['content']}\n"
+
+        summary_prompt = f"""From this conversation extract and format order summary.
+Return ONLY in this format:
+Items: [list items]
+Total: [number] AED
+Address: [address]
+
+Conversation:
+{conversation_text}"""
+
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=200,
+            messages=[{"role": "user", "content": summary_prompt}]
+        )
+        return response.content[0].text.strip()
+    except Exception as e:
+        return "Your order"
+
 def is_address(text):
     address_keywords = [
         "villa", "apartment", "flat", "building", "street",
         "road", "near", "behind", "opposite", "floor",
         "house", "area", "district", "city", "tower",
-        "compound", "block", "unit", "office", "shop"
+        "compound", "block", "unit", "office", "shop",
+        "al ", "bur ", "deira", "dubai", "abu dhabi",
+        "sharjah", "ajman", "number", "no."
     ]
     text_lower = text.lower()
-    return any(keyword in text_lower for keyword in address_keywords)
+    word_count = len(text.split())
+    has_keyword = any(keyword in text_lower for keyword in address_keywords)
+    return has_keyword and word_count >= 3
 
 def is_confirmation(text):
     confirm_words = [
@@ -140,19 +169,23 @@ def is_confirmation(text):
     ]
     return text.lower().strip() in confirm_words
 
+def is_rejection(text):
+    reject_words = ["no", "cancel", "stop", "dont", "don't"]
+    return text.lower().strip() in reject_words
+
 SHOP_NAME = "Fresh Mart Supermarket"
 
 def get_system_prompt():
     products = get_products()
     return f"""You are a friendly shop assistant for {SHOP_NAME}.
 
-YOUR ONLY JOB:
+YOUR JOB:
 1. Greet customer
 2. Help them choose products
-3. When they are done choosing ask for delivery address
-4. When customer gives address - show order summary with total
-5. End your message with exactly: "Shall I confirm your order? Reply YES to confirm."
-6. Stop there - do not confirm the order yourself
+3. When they are done ask for delivery address
+4. When customer gives address - show order summary ONLY
+5. DO NOT confirm order - DO NOT say order is placed
+6. DO NOT ask for YES or NO - the system handles confirmation
 
 Products:
 {products}
@@ -235,73 +268,68 @@ def webhook():
                 if text.lower() == "/start":
                     conversations[sender] = []
                     waiting_confirmation[sender] = False
-                    order_stage[sender] = "shopping"
                     send_whatsapp_message(
                         sender,
                         f"Welcome to {SHOP_NAME}! How can I help you today?")
                     return "OK", 200
 
-                # Customer replied YES to confirm order
-                if waiting_confirmation.get(sender) and is_confirmation(text):
-                    print(f"YES received from {sender}! Saving order...")
-                    order = extract_order_from_conversation(sender)
-
-                    if order:
-                        order_id = save_order(
-                            sender,
-                            order["items"],
-                            order["total"],
-                            order["address"]
-                        )
-
-                        if order_id:
-                            waiting_confirmation[sender] = False
-                            conversations[sender] = []
-                            order_stage[sender] = "shopping"
-                            reply = (
-                                f"Your order has been placed successfully!\n\n"
-                                f"Order ID: {order_id}\n"
-                                f"Items: {order['items']}\n"
-                                f"Total: {order['total']} AED\n"
-                                f"Delivery to: {order['address']}\n\n"
-                                f"We will deliver between 8am-10pm.\n"
-                                f"Please save your Order ID: {order_id}\n"
-                                f"Use this ID to follow up on your order.\n\n"
-                                f"Thank you for shopping with {SHOP_NAME}!"
+                # Step 1 — Waiting for YES or NO
+                if waiting_confirmation.get(sender):
+                    if is_confirmation(text):
+                        print(f"YES from {sender}! Saving order...")
+                        order = extract_order_from_conversation(sender)
+                        if order:
+                            order_id = save_order(
+                                sender,
+                                order["items"],
+                                order["total"],
+                                order["address"]
                             )
+                            if order_id:
+                                waiting_confirmation[sender] = False
+                                conversations[sender] = []
+                                reply = (
+                                    f"Your order has been placed!\n\n"
+                                    f"Order ID: {order_id}\n"
+                                    f"Items: {order['items']}\n"
+                                    f"Total: {order['total']} AED\n"
+                                    f"Delivery to: {order['address']}\n\n"
+                                    f"We will deliver between 8am-10pm.\n"
+                                    f"Save your Order ID: {order_id}\n"
+                                    f"Thank you for shopping with {SHOP_NAME}!"
+                                )
+                            else:
+                                reply = "Sorry, problem saving order. Please type /start and try again."
                         else:
-                            reply = (
-                                "Sorry, there was a problem saving your order. "
-                                "Please type /start and try again."
-                            )
+                            reply = "Sorry, could not get order details. Please type /start and try again."
+                        send_whatsapp_message(sender, reply)
+                        return "OK", 200
+
+                    elif is_rejection(text):
+                        waiting_confirmation[sender] = False
+                        send_whatsapp_message(
+                            sender,
+                            "Order cancelled. Type /start to start a new order.")
+                        return "OK", 200
                     else:
-                        reply = (
-                            "Sorry, I could not get all your order details. "
-                            "Please type /start and try again."
-                        )
+                        send_whatsapp_message(
+                            sender,
+                            "Please reply YES to confirm your order or NO to cancel.")
+                        return "OK", 200
 
-                    send_whatsapp_message(sender, reply)
-                    return "OK", 200
-
-                # Customer says NO to confirmation
-                if waiting_confirmation.get(sender) and text.lower() in ["no", "cancel", "stop"]:
-                    waiting_confirmation[sender] = False
-                    send_whatsapp_message(
-                        sender,
-                        "No problem! Your order has been cancelled. Type /start to start a new order.")
-                    return "OK", 200
-
-                # Normal conversation with AI
-                reply = get_ai_reply(sender, text)
-
-                # If address detected - set waiting for confirmation
+                # Step 2 — Address detected
                 if is_address(text) and not waiting_confirmation.get(sender):
+                    print(f"Address detected from {sender}!")
+                    # Pass to AI first to get summary
+                    ai_reply = get_ai_reply(sender, text)
+                    # Then add our confirmation question
                     waiting_confirmation[sender] = True
-                    print(f"Address detected! Waiting for YES from {sender}")
-                    # Add confirmation request if AI did not include it
-                    if "shall i confirm" not in reply.lower():
-                        reply += "\n\nShall I confirm your order? Reply YES to confirm or NO to cancel."
+                    final_reply = ai_reply + "\n\nReply YES to confirm your order or NO to cancel."
+                    send_whatsapp_message(sender, final_reply)
+                    return "OK", 200
 
+                # Step 3 — Normal conversation
+                reply = get_ai_reply(sender, text)
                 send_whatsapp_message(sender, reply)
 
     except Exception as e:
