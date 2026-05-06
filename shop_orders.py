@@ -20,7 +20,7 @@ SHEET_ID = "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM"
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
-order_data = {}
+waiting_confirmation = {}
 
 def get_sheet():
     scope = [
@@ -68,49 +68,53 @@ def save_order(phone, items, total, address):
         print(f"Order save error: {e}")
         return "ORD000"
 
-def extract_order_details(sender):
+def extract_order_from_conversation(sender):
     try:
-        extract_prompt = f"""Look at this conversation and extract order details.
-Return ONLY in this exact format, nothing else:
-ITEMS: [list the items and quantities]
-TOTAL: [number only, no AED]
+        history = conversations.get(sender, [])
+        conversation_text = ""
+        for msg in history:
+            role = "Customer" if msg["role"] == "user" else "Agent"
+            conversation_text += f"{role}: {msg['content']}\n"
+
+        extract_prompt = f"""Extract order details from this conversation.
+Return ONLY in this exact format:
+ITEMS: [items and quantities]
+TOTAL: [number only no currency]
 ADDRESS: [delivery address]
 
-If you cannot find all 3 details, return:
-INCOMPLETE
+If any detail is missing return: INCOMPLETE
 
 Conversation:
-{str(conversations.get(sender, []))}"""
+{conversation_text}"""
 
         response = client.messages.create(
             model="claude-opus-4-5",
-            max_tokens=200,
+            max_tokens=300,
             messages=[{"role": "user", "content": extract_prompt}]
         )
-        
+
         result = response.content[0].text.strip()
-        print(f"Extracted order: {result}")
-        
+        print(f"Extracted: {result}")
+
         if "INCOMPLETE" in result:
             return None
-            
-        lines = result.strip().split("\n")
+
         items = ""
         total = ""
         address = ""
-        
-        for line in lines:
+
+        for line in result.split("\n"):
             if line.startswith("ITEMS:"):
                 items = line.replace("ITEMS:", "").strip()
             elif line.startswith("TOTAL:"):
                 total = line.replace("TOTAL:", "").strip()
             elif line.startswith("ADDRESS:"):
                 address = line.replace("ADDRESS:", "").strip()
-        
+
         if items and total and address:
             return {"items": items, "total": total, "address": address}
         return None
-        
+
     except Exception as e:
         print(f"Extract error: {e}")
         return None
@@ -122,12 +126,15 @@ def get_system_prompt():
     return f"""You are a friendly shop assistant for {SHOP_NAME}.
 
 ORDER PROCESS:
-1. Greet customer warmly
+1. Greet customer
 2. Help them choose products
 3. Ask for delivery address
-4. Show clear order summary
-5. Ask customer to confirm with Yes or No
-6. When customer says Yes - say "Processing your order now..."
+4. Show order summary with total
+5. Ask customer: "Shall I confirm your order? Reply YES to confirm."
+6. Wait for customer to say YES
+
+Important: Always ask for delivery address before confirming.
+Always show total before asking for confirmation.
 
 Products:
 {products}
@@ -135,7 +142,6 @@ Products:
 Delivery: 10 AED
 Free delivery above 100 AED
 Hours: 8am-10pm
-
 Keep replies short and friendly."""
 
 def send_whatsapp_message(to, message):
@@ -152,6 +158,7 @@ def send_whatsapp_message(to, message):
     }
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp API Response: {response.status_code}")
+    print(f"Response details: {response.text}")
 
 def get_ai_reply(sender, message):
     if sender not in conversations:
@@ -180,23 +187,13 @@ def get_ai_reply(sender, message):
         "content": reply
     })
 
-    # If customer confirmed order
-    if "Processing your order now" in reply:
-        print("Customer confirmed! Extracting order details...")
-        order = extract_order_details(sender)
-        
-        if order:
-            order_id = save_order(
-                sender,
-                order["items"],
-                order["total"],
-                order["address"]
-            )
-            reply = f"Your order has been placed successfully!\n\nOrder ID: {order_id}\nItems: {order['items']}\nTotal: {order['total']} AED\nDelivery to: {order['address']}\n\nWe will deliver between 8am-10pm.\nPlease keep your Order ID for follow up.\nThank you for shopping with {SHOP_NAME}!"
-        else:
-            reply = "I am sorry, I could not process your order. Please type /start and try again."
-
     return reply
+
+def is_confirmation(text):
+    confirm_words = ["yes", "confirm", "ok", "okay", "sure", 
+                     "proceed", "place order", "confirmed",
+                     "yes please", "yep", "yeah", "go ahead"]
+    return text.lower().strip() in confirm_words
 
 @app.route("/webhook", methods=["GET"])
 def verify():
@@ -224,12 +221,41 @@ def webhook():
 
                 if text.lower() == "/start":
                     conversations[sender] = []
+                    waiting_confirmation[sender] = False
                     send_whatsapp_message(
                         sender,
                         f"Welcome to {SHOP_NAME}! How can I help you today?")
                     return "OK", 200
 
+                # Check if waiting for confirmation and customer says YES
+                if waiting_confirmation.get(sender) and is_confirmation(text):
+                    print(f"Confirmation received from {sender}!")
+                    order = extract_order_from_conversation(sender)
+
+                    if order:
+                        order_id = save_order(
+                            sender,
+                            order["items"],
+                            order["total"],
+                            order["address"]
+                        )
+                        waiting_confirmation[sender] = False
+                        reply = f"Your order has been placed!\n\nOrder ID: {order_id}\nItems: {order['items']}\nTotal: {order['total']} AED\nDelivery to: {order['address']}\n\nWe will deliver between 8am-10pm.\nKeep your Order ID for follow up.\nThank you for shopping with {SHOP_NAME}!"
+                        send_whatsapp_message(sender, reply)
+                        return "OK", 200
+                    else:
+                        send_whatsapp_message(
+                            sender,
+                            "Sorry, I could not get your order details. Please type /start and try again.")
+                        return "OK", 200
+
                 reply = get_ai_reply(sender, text)
+
+                # Check if agent asked for confirmation
+                if "shall i confirm" in reply.lower() or "reply yes" in reply.lower():
+                    waiting_confirmation[sender] = True
+                    print(f"Waiting for confirmation from {sender}")
+
                 send_whatsapp_message(sender, reply)
 
     except Exception as e:
