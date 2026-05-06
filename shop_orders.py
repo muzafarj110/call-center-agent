@@ -120,32 +120,6 @@ Conversation:
         print(f"Extract error: {e}")
         return None
 
-def get_order_summary(sender):
-    try:
-        history = conversations.get(sender, [])
-        conversation_text = ""
-        for msg in history:
-            role = "Customer" if msg["role"] == "user" else "Agent"
-            conversation_text += f"{role}: {msg['content']}\n"
-
-        summary_prompt = f"""From this conversation extract and format order summary.
-Return ONLY in this format:
-Items: [list items]
-Total: [number] AED
-Address: [address]
-
-Conversation:
-{conversation_text}"""
-
-        response = client.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=200,
-            messages=[{"role": "user", "content": summary_prompt}]
-        )
-        return response.content[0].text.strip()
-    except Exception as e:
-        return "Your order"
-
 def is_address(text):
     address_keywords = [
         "villa", "apartment", "flat", "building", "street",
@@ -158,6 +132,9 @@ def is_address(text):
     text_lower = text.lower()
     word_count = len(text.split())
     has_keyword = any(keyword in text_lower for keyword in address_keywords)
+    print(f"Address check - text: {text}")
+    print(f"Address check - has_keyword: {has_keyword}")
+    print(f"Address check - word_count: {word_count}")
     return has_keyword and word_count >= 3
 
 def is_confirmation(text):
@@ -183,9 +160,10 @@ YOUR JOB:
 1. Greet customer
 2. Help them choose products
 3. When they are done ask for delivery address
-4. When customer gives address - show order summary ONLY
-5. DO NOT confirm order - DO NOT say order is placed
-6. DO NOT ask for YES or NO - the system handles confirmation
+4. When customer gives address show order summary ONLY
+5. DO NOT confirm order yourself
+6. DO NOT say order is placed
+7. DO NOT ask for YES or NO
 
 Products:
 {products}
@@ -263,6 +241,7 @@ def webhook():
             if message["type"] == "text":
                 text = message["text"]["body"]
                 print(f"Message from {sender}: {text}")
+                print(f"waiting_confirmation status: {waiting_confirmation.get(sender)}")
 
                 # Reset conversation
                 if text.lower() == "/start":
@@ -275,6 +254,7 @@ def webhook():
 
                 # Step 1 — Waiting for YES or NO
                 if waiting_confirmation.get(sender):
+                    print(f"In confirmation mode for {sender}")
                     if is_confirmation(text):
                         print(f"YES from {sender}! Saving order...")
                         order = extract_order_from_conversation(sender)
@@ -311,19 +291,22 @@ def webhook():
                             sender,
                             "Order cancelled. Type /start to start a new order.")
                         return "OK", 200
+
                     else:
                         send_whatsapp_message(
                             sender,
                             "Please reply YES to confirm your order or NO to cancel.")
                         return "OK", 200
 
-                # Step 2 — Address detected
-                if is_address(text) and not waiting_confirmation.get(sender):
-                    print(f"Address detected from {sender}!")
-                    # Pass to AI first to get summary
-                    ai_reply = get_ai_reply(sender, text)
-                    # Then add our confirmation question
+                # Step 2 — Check for address
+                print(f"Checking if address: {text}")
+                address_detected = is_address(text)
+                print(f"Address detected: {address_detected}")
+
+                if address_detected:
+                    print(f"Address found from {sender}! Setting confirmation mode...")
                     waiting_confirmation[sender] = True
+                    ai_reply = get_ai_reply(sender, text)
                     final_reply = ai_reply + "\n\nReply YES to confirm your order or NO to cancel."
                     send_whatsapp_message(sender, final_reply)
                     return "OK", 200
