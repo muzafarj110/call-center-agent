@@ -62,11 +62,11 @@ def save_order(phone, items, total, address):
             "New",
             now
         ])
-        print(f"Order saved! ID: {order_id}")
+        print(f"Order saved in Google Sheet! ID: {order_id}")
         return order_id
     except Exception as e:
         print(f"Order save error: {e}")
-        return "ORD000"
+        return None
 
 def extract_order_from_conversation(sender):
     try:
@@ -77,12 +77,12 @@ def extract_order_from_conversation(sender):
             conversation_text += f"{role}: {msg['content']}\n"
 
         extract_prompt = f"""Extract order details from this conversation.
-Return ONLY in this exact format:
+Return ONLY in this exact format with no extra text:
 ITEMS: [items and quantities]
-TOTAL: [number only no currency]
+TOTAL: [number only no currency symbol]
 ADDRESS: [delivery address]
 
-If any detail is missing return: INCOMPLETE
+If any detail is missing return exactly: INCOMPLETE
 
 Conversation:
 {conversation_text}"""
@@ -94,7 +94,7 @@ Conversation:
         )
 
         result = response.content[0].text.strip()
-        print(f"Extracted: {result}")
+        print(f"Extracted order details: {result}")
 
         if "INCOMPLETE" in result:
             return None
@@ -125,24 +125,26 @@ def get_system_prompt():
     products = get_products()
     return f"""You are a friendly shop assistant for {SHOP_NAME}.
 
-ORDER PROCESS:
-1. Greet customer
-2. Help them choose products
+STRICT ORDER RULES - NEVER BREAK THESE:
+1. Greet customer warmly
+2. Help them choose products from the list
 3. Ask for delivery address
-4. Show order summary with total
-5. Ask customer: "Shall I confirm your order? Reply YES to confirm."
-6. Wait for customer to say YES
+4. Show clear order summary with total price
+5. ALWAYS end with this exact question: "Shall I confirm your order? Reply YES to confirm."
+6. NEVER say "Order Confirmed" or "Order Placed" yourself
+7. NEVER confirm the order yourself
+8. ALWAYS wait for customer to reply YES
+9. If customer gives address - show summary then ask "Shall I confirm your order? Reply YES to confirm."
+10. You are not allowed to confirm any order - only the system confirms after YES
 
-Important: Always ask for delivery address before confirming.
-Always show total before asking for confirmation.
-
-Products:
+Products available:
 {products}
 
-Delivery: 10 AED
-Free delivery above 100 AED
-Hours: 8am-10pm
-Keep replies short and friendly."""
+Delivery charge: 10 AED
+Free delivery on orders above 100 AED
+Shop hours: 8am to 10pm
+Keep replies short and friendly.
+If customer is angry - say manager will call back shortly."""
 
 def send_whatsapp_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_ID}/messages"
@@ -190,9 +192,12 @@ def get_ai_reply(sender, message):
     return reply
 
 def is_confirmation(text):
-    confirm_words = ["yes", "confirm", "ok", "okay", "sure", 
-                     "proceed", "place order", "confirmed",
-                     "yes please", "yep", "yeah", "go ahead"]
+    confirm_words = [
+        "yes", "confirm", "ok", "okay", "sure",
+        "proceed", "place order", "confirmed",
+        "yes please", "yep", "yeah", "go ahead",
+        "do it", "correct", "right", "accept"
+    ]
     return text.lower().strip() in confirm_words
 
 @app.route("/webhook", methods=["GET"])
@@ -219,6 +224,7 @@ def webhook():
                 text = message["text"]["body"]
                 print(f"Message from {sender}: {text}")
 
+                # Reset conversation
                 if text.lower() == "/start":
                     conversations[sender] = []
                     waiting_confirmation[sender] = False
@@ -227,9 +233,9 @@ def webhook():
                         f"Welcome to {SHOP_NAME}! How can I help you today?")
                     return "OK", 200
 
-                # Check if waiting for confirmation and customer says YES
+                # Customer replied YES to confirm order
                 if waiting_confirmation.get(sender) and is_confirmation(text):
-                    print(f"Confirmation received from {sender}!")
+                    print(f"YES received from {sender}! Saving order...")
                     order = extract_order_from_conversation(sender)
 
                     if order:
@@ -239,22 +245,42 @@ def webhook():
                             order["total"],
                             order["address"]
                         )
-                        waiting_confirmation[sender] = False
-                        reply = f"Your order has been placed!\n\nOrder ID: {order_id}\nItems: {order['items']}\nTotal: {order['total']} AED\nDelivery to: {order['address']}\n\nWe will deliver between 8am-10pm.\nKeep your Order ID for follow up.\nThank you for shopping with {SHOP_NAME}!"
-                        send_whatsapp_message(sender, reply)
-                        return "OK", 200
-                    else:
-                        send_whatsapp_message(
-                            sender,
-                            "Sorry, I could not get your order details. Please type /start and try again.")
-                        return "OK", 200
 
+                        if order_id:
+                            waiting_confirmation[sender] = False
+                            conversations[sender] = []
+                            reply = (
+                                f"Your order has been placed successfully!\n\n"
+                                f"Order ID: {order_id}\n"
+                                f"Items: {order['items']}\n"
+                                f"Total: {order['total']} AED\n"
+                                f"Delivery to: {order['address']}\n\n"
+                                f"We will deliver between 8am-10pm.\n"
+                                f"Please save your Order ID: {order_id}\n"
+                                f"Use this ID to follow up on your order.\n\n"
+                                f"Thank you for shopping with {SHOP_NAME}!"
+                            )
+                        else:
+                            reply = (
+                                "Sorry, there was a problem saving your order. "
+                                "Please type /start and try again or call us directly."
+                            )
+                    else:
+                        reply = (
+                            "Sorry, I could not get all your order details. "
+                            "Please type /start and try again."
+                        )
+
+                    send_whatsapp_message(sender, reply)
+                    return "OK", 200
+
+                # Normal conversation
                 reply = get_ai_reply(sender, text)
 
-                # Check if agent asked for confirmation
-                if "shall i confirm" in reply.lower() or "reply yes" in reply.lower():
+                # Check if agent asked for YES confirmation
+                if "shall i confirm your order" in reply.lower():
                     waiting_confirmation[sender] = True
-                    print(f"Waiting for confirmation from {sender}")
+                    print(f"Waiting for YES from {sender}")
 
                 send_whatsapp_message(sender, reply)
 
