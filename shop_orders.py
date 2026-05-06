@@ -39,7 +39,7 @@ def get_products():
         products = ""
         for row in records:
             stock_status = "In Stock" if int(row['Stock']) > 0 else "Out of Stock"
-            products += f"- {row['Product']} — {row['Price_AED']} AED — {stock_status}\n"
+            products += f"- {row['Product']} -- {row['Price_AED']} AED -- {stock_status}\n"
         return products
     except Exception as e:
         print(f"Sheet error: {e}")
@@ -56,7 +56,7 @@ def save_order(phone, items, total, address):
             order_id,
             phone,
             items,
-            total,
+            str(total),
             address,
             "New",
             now
@@ -73,36 +73,29 @@ def get_system_prompt():
     products = get_products()
     return f"""You are a friendly shop assistant for {SHOP_NAME}.
 
-Your job:
-1. Greet the customer warmly
-2. Help them find products and prices
-3. Take their order step by step
-4. Ask for delivery address
-5. Calculate total price including delivery
-6. Confirm the order
+STEP BY STEP ORDER PROCESS:
+Step 1 - Greet customer
+Step 2 - Help them choose products
+Step 3 - Ask for delivery address
+Step 4 - Show order summary and ask YES or NO
+Step 5 - When customer says YES - reply with ONLY this exact format:
 
-Products:
+SAVE_ORDER
+items: [list items here]
+total: [number only]
+address: [address here]
+END_ORDER
+
+Then thank the customer normally.
+
+Products available:
 {products}
 
-Delivery charge: 10 AED
-Free delivery on orders above 100 AED
-Shop hours: 8am to 10pm
-Keep replies short and friendly.
-If customer is angry — say manager will call back shortly.
+Delivery: 10 AED
+Free delivery above 100 AED
+Hours: 8am-10pm
 
-CRITICAL RULE - YOU MUST FOLLOW THIS EXACTLY:
-When customer gives delivery address, your reply MUST end with
-this exact text on the last line - no exceptions:
-ORDER_CONFIRMED:[items]|[total number only]|[address]
-
-Example:
-ORDER_CONFIRMED:Rice 5kg x1, Milk 1L x2|47|Villa 24 Apartment 102
-
-Rules:
-- Total must be number only example: 35 not 35 AED
-- No spaces around the | symbol
-- This must be the very last line of your reply
-- Never use words like Order Confirmed without this exact format"""
+Keep replies short and friendly."""
 
 def send_whatsapp_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_ID}/messages"
@@ -118,7 +111,45 @@ def send_whatsapp_message(to, message):
     }
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp API Response: {response.status_code}")
-    print(f"Response details: {response.text}")
+
+def extract_and_save_order(sender, reply):
+    if "SAVE_ORDER" in reply and "END_ORDER" in reply:
+        try:
+            print("Order detected! Saving...")
+            order_section = reply.split("SAVE_ORDER")[1].split("END_ORDER")[0]
+            lines = order_section.strip().split("\n")
+
+            items = ""
+            total = ""
+            address = ""
+
+            for line in lines:
+                if line.startswith("items:"):
+                    items = line.replace("items:", "").strip()
+                elif line.startswith("total:"):
+                    total = line.replace("total:", "").strip()
+                elif line.startswith("address:"):
+                    address = line.replace("address:", "").strip()
+
+            print(f"Items: {items}")
+            print(f"Total: {total}")
+            print(f"Address: {address}")
+
+            order_id = save_order(sender, items, total, address)
+
+            clean_reply = reply.split("SAVE_ORDER")[0].strip()
+            if "END_ORDER" in reply:
+                after_order = reply.split("END_ORDER")[1].strip()
+                if after_order:
+                    clean_reply += "\n" + after_order
+
+            clean_reply += f"\n\nOrder confirmed!\nOrder ID: {order_id}\nDelivery coming soon!\nTotal: {total} AED"
+            return clean_reply
+
+        except Exception as e:
+            print(f"Order extraction error: {e}")
+            return reply
+    return reply
 
 def get_ai_reply(sender, message):
     if sender not in conversations:
@@ -129,12 +160,12 @@ def get_ai_reply(sender, message):
         "content": message
     })
 
-    if len(conversations[sender]) > 10:
-        conversations[sender] = conversations[sender][-10:]
+    if len(conversations[sender]) > 20:
+        conversations[sender] = conversations[sender][-20:]
 
     response = client.messages.create(
         model="claude-opus-4-5",
-        max_tokens=500,
+        max_tokens=1000,
         system=get_system_prompt(),
         messages=conversations[sender]
     )
@@ -142,26 +173,12 @@ def get_ai_reply(sender, message):
     reply = response.content[0].text
     print(f"AI Reply: {reply}")
 
+    reply = extract_and_save_order(sender, reply)
+
     conversations[sender].append({
         "role": "assistant",
         "content": reply
     })
-
-    # Check if order is confirmed
-    if "ORDER_CONFIRMED:" in reply:
-        try:
-            print("Order confirmation detected!")
-            order_data = reply.split("ORDER_CONFIRMED:")[1].strip()
-            parts = order_data.split("|")
-            items = parts[0]
-            total = parts[1]
-            address = parts[2]
-            print(f"Items: {items}, Total: {total}, Address: {address}")
-            order_id = save_order(sender, items, total, address)
-            reply = reply.split("ORDER_CONFIRMED:")[0].strip()
-            reply += f"\n\n✅ Order confirmed!\n📦 Order ID: {order_id}\n🚚 We will deliver to you soon!\n💵 Total: {total} AED\nThank you for shopping with us!"
-        except Exception as e:
-            print(f"Order processing error: {e}")
 
     return reply
 
@@ -189,23 +206,23 @@ def webhook():
                 text = message["text"]["body"]
                 print(f"Message from {sender}: {text}")
 
-                # Reset conversation
                 if text.lower() == "/start":
                     conversations[sender] = []
                     send_whatsapp_message(
-                        sender, "Starting fresh! How can I help you?")
+                        sender,
+                        f"Welcome to {SHOP_NAME}! How can I help you today?")
                     return "OK", 200
 
                 reply = get_ai_reply(sender, text)
                 send_whatsapp_message(sender, reply)
-                print(f"Reply sent: {reply}")
+
     except Exception as e:
         print(f"Error: {e}")
     return "OK", 200
 
 if __name__ == "__main__":
     print("=" * 45)
-    print(f"  {SHOP_NAME} — Order Management LIVE!")
-    print("  Orders saved to Google Sheet!")
+    print(f"  {SHOP_NAME}")
+    print("  Order Management System LIVE!")
     print("=" * 45)
     app.run(port=5000, debug=True)
