@@ -143,7 +143,7 @@ def extract_and_save_order(sender, reply):
                 if after_order:
                     clean_reply += "\n" + after_order
 
-            clean_reply += f"\n\nOrder confirmed!\nOrder ID: {order_id}\nDelivery coming soon!\nTotal: {total} AED"
+            clean_reply += f"\n\nThank you for your order!\n\nOrder ID: {order_id}\nTotal: {total} AED\nDelivery address: {address}\nWe will deliver soon.\n\nPlease keep your Order ID for follow up."
             return clean_reply
 
         except Exception as e:
