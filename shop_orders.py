@@ -20,6 +20,7 @@ SHEET_ID = "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM"
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
+order_data = {}
 
 def get_sheet():
     scope = [
@@ -67,28 +68,68 @@ def save_order(phone, items, total, address):
         print(f"Order save error: {e}")
         return "ORD000"
 
+def extract_order_details(sender):
+    try:
+        extract_prompt = f"""Look at this conversation and extract order details.
+Return ONLY in this exact format, nothing else:
+ITEMS: [list the items and quantities]
+TOTAL: [number only, no AED]
+ADDRESS: [delivery address]
+
+If you cannot find all 3 details, return:
+INCOMPLETE
+
+Conversation:
+{str(conversations.get(sender, []))}"""
+
+        response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=200,
+            messages=[{"role": "user", "content": extract_prompt}]
+        )
+        
+        result = response.content[0].text.strip()
+        print(f"Extracted order: {result}")
+        
+        if "INCOMPLETE" in result:
+            return None
+            
+        lines = result.strip().split("\n")
+        items = ""
+        total = ""
+        address = ""
+        
+        for line in lines:
+            if line.startswith("ITEMS:"):
+                items = line.replace("ITEMS:", "").strip()
+            elif line.startswith("TOTAL:"):
+                total = line.replace("TOTAL:", "").strip()
+            elif line.startswith("ADDRESS:"):
+                address = line.replace("ADDRESS:", "").strip()
+        
+        if items and total and address:
+            return {"items": items, "total": total, "address": address}
+        return None
+        
+    except Exception as e:
+        print(f"Extract error: {e}")
+        return None
+
 SHOP_NAME = "Fresh Mart Supermarket"
 
 def get_system_prompt():
     products = get_products()
     return f"""You are a friendly shop assistant for {SHOP_NAME}.
 
-STEP BY STEP ORDER PROCESS:
-Step 1 - Greet customer
-Step 2 - Help them choose products
-Step 3 - Ask for delivery address
-Step 4 - Show order summary and ask YES or NO
-Step 5 - When customer says YES - reply with ONLY this exact format:
+ORDER PROCESS:
+1. Greet customer warmly
+2. Help them choose products
+3. Ask for delivery address
+4. Show clear order summary
+5. Ask customer to confirm with Yes or No
+6. When customer says Yes - say "Processing your order now..."
 
-SAVE_ORDER
-items: [list items here]
-total: [number only]
-address: [address here]
-END_ORDER
-
-Then thank the customer normally.
-
-Products available:
+Products:
 {products}
 
 Delivery: 10 AED
@@ -112,45 +153,6 @@ def send_whatsapp_message(to, message):
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp API Response: {response.status_code}")
 
-def extract_and_save_order(sender, reply):
-    if "SAVE_ORDER" in reply and "END_ORDER" in reply:
-        try:
-            print("Order detected! Saving...")
-            order_section = reply.split("SAVE_ORDER")[1].split("END_ORDER")[0]
-            lines = order_section.strip().split("\n")
-
-            items = ""
-            total = ""
-            address = ""
-
-            for line in lines:
-                if line.startswith("items:"):
-                    items = line.replace("items:", "").strip()
-                elif line.startswith("total:"):
-                    total = line.replace("total:", "").strip()
-                elif line.startswith("address:"):
-                    address = line.replace("address:", "").strip()
-
-            print(f"Items: {items}")
-            print(f"Total: {total}")
-            print(f"Address: {address}")
-
-            order_id = save_order(sender, items, total, address)
-
-            clean_reply = reply.split("SAVE_ORDER")[0].strip()
-            if "END_ORDER" in reply:
-                after_order = reply.split("END_ORDER")[1].strip()
-                if after_order:
-                    clean_reply += "\n" + after_order
-
-            clean_reply += f"\n\nThank you for your order!\n\nOrder ID: {order_id}\nTotal: {total} AED\nDelivery address: {address}\nWe will deliver soon.\n\nPlease keep your Order ID for follow up."
-            return clean_reply
-
-        except Exception as e:
-            print(f"Order extraction error: {e}")
-            return reply
-    return reply
-
 def get_ai_reply(sender, message):
     if sender not in conversations:
         conversations[sender] = []
@@ -173,12 +175,26 @@ def get_ai_reply(sender, message):
     reply = response.content[0].text
     print(f"AI Reply: {reply}")
 
-    reply = extract_and_save_order(sender, reply)
-
     conversations[sender].append({
         "role": "assistant",
         "content": reply
     })
+
+    # If customer confirmed order
+    if "Processing your order now" in reply:
+        print("Customer confirmed! Extracting order details...")
+        order = extract_order_details(sender)
+        
+        if order:
+            order_id = save_order(
+                sender,
+                order["items"],
+                order["total"],
+                order["address"]
+            )
+            reply = f"Your order has been placed successfully!\n\nOrder ID: {order_id}\nItems: {order['items']}\nTotal: {order['total']} AED\nDelivery to: {order['address']}\n\nWe will deliver between 8am-10pm.\nPlease keep your Order ID for follow up.\nThank you for shopping with {SHOP_NAME}!"
+        else:
+            reply = "I am sorry, I could not process your order. Please type /start and try again."
 
     return reply
 
