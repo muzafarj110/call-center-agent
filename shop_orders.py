@@ -127,15 +127,15 @@ def is_address(text):
         "house", "area", "district", "city", "tower",
         "compound", "block", "unit", "office", "shop",
         "al ", "bur ", "deira", "dubai", "abu dhabi",
-        "sharjah", "ajman", "number", "no."
+        "sharjah", "ajman", "number", "no.", "room"
     ]
     text_lower = text.lower()
     word_count = len(text.split())
     has_keyword = any(keyword in text_lower for keyword in address_keywords)
-    print(f"Address check - text: {text}")
-    print(f"Address check - has_keyword: {has_keyword}")
-    print(f"Address check - word_count: {word_count}")
-    return has_keyword and word_count >= 3
+    print(f"DEBUG address check - text: {text}")
+    print(f"DEBUG address check - has_keyword: {has_keyword}")
+    print(f"DEBUG address check - word_count: {word_count}")
+    return has_keyword and word_count >= 2
 
 def is_confirmation(text):
     confirm_words = [
@@ -164,6 +164,7 @@ YOUR JOB:
 5. DO NOT confirm order yourself
 6. DO NOT say order is placed
 7. DO NOT ask for YES or NO
+8. The system will handle confirmation automatically
 
 Products:
 {products}
@@ -241,7 +242,7 @@ def webhook():
             if message["type"] == "text":
                 text = message["text"]["body"]
                 print(f"Message from {sender}: {text}")
-                print(f"waiting_confirmation status: {waiting_confirmation.get(sender)}")
+                print(f"waiting_confirmation: {waiting_confirmation.get(sender)}")
 
                 # Reset conversation
                 if text.lower() == "/start":
@@ -298,16 +299,21 @@ def webhook():
                             "Please reply YES to confirm your order or NO to cancel.")
                         return "OK", 200
 
-                # Step 2 — Check for address
-                print(f"Checking if address: {text}")
+                # Step 2 — Check for address BEFORE sending to AI
+                print(f"DEBUG checking address for: {text}")
                 address_detected = is_address(text)
-                print(f"Address detected: {address_detected}")
+                print(f"DEBUG address_detected result: {address_detected}")
 
                 if address_detected:
                     print(f"Address found from {sender}! Setting confirmation mode...")
                     waiting_confirmation[sender] = True
                     ai_reply = get_ai_reply(sender, text)
-                    final_reply = ai_reply + "\n\nReply YES to confirm your order or NO to cancel."
+                    final_reply = (
+                        ai_reply +
+                        "\n\n----------------------------------------"
+                        "\nReply YES to confirm your order"
+                        "\nReply NO to cancel"
+                    )
                     send_whatsapp_message(sender, final_reply)
                     return "OK", 200
 
