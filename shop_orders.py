@@ -21,6 +21,9 @@ SHEET_ID = "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM"
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
 waiting_confirmation = {}
+products_cache = ""
+products_cache_time = None
+CACHE_MINUTES = 5
 
 def get_sheet():
     scope = [
@@ -33,7 +36,16 @@ def get_sheet():
     return gc.open_by_key(SHEET_ID)
 
 def get_products():
+    global products_cache, products_cache_time
+
+    if products_cache and products_cache_time:
+        elapsed = (datetime.now() - products_cache_time).seconds / 60
+        if elapsed < CACHE_MINUTES:
+            print(f"Using cached products ({elapsed:.1f} mins old)")
+            return products_cache
+
     try:
+        print("Loading fresh products from Google Sheet...")
         sh = get_sheet()
         worksheet = sh.worksheet("Products")
         records = worksheet.get_all_records()
@@ -42,9 +54,15 @@ def get_products():
             stock_status = "In Stock" if int(
                 row['Stock']) > 0 else "Out of Stock"
             products += f"- {row['Product']} -- {row['Price_AED']} AED -- {stock_status}\n"
+        products_cache = products
+        products_cache_time = datetime.now()
+        print("Products loaded and cached!")
         return products
     except Exception as e:
         print(f"Sheet error: {e}")
+        if products_cache:
+            print("Using old cache due to error")
+            return products_cache
         return "Products temporarily unavailable"
 
 def save_order(phone, items, total, address):
