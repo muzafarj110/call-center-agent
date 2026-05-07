@@ -21,6 +21,7 @@ SHEET_ID = "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM"
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 conversations = {}
 waiting_confirmation = {}
+saved_orders = {}
 products_cache = ""
 products_cache_time = None
 CACHE_MINUTES = 5
@@ -266,6 +267,7 @@ def webhook():
                 if text.lower() == "/start":
                     conversations[sender] = []
                     waiting_confirmation[sender] = False
+                    saved_orders[sender] = None
                     send_whatsapp_message(
                         sender,
                         f"Welcome to {SHOP_NAME}! How can I help you today?")
@@ -276,7 +278,10 @@ def webhook():
                     print(f"In confirmation mode for {sender}")
                     if is_confirmation(text):
                         print(f"YES from {sender}! Saving order...")
-                        order = extract_order_from_conversation(sender)
+                        # Use pre-saved order
+                        order = saved_orders.get(sender)
+                        if not order:
+                            order = extract_order_from_conversation(sender)
                         if order:
                             order_id = save_order(
                                 sender,
@@ -287,6 +292,7 @@ def webhook():
                             if order_id:
                                 waiting_confirmation[sender] = False
                                 conversations[sender] = []
+                                saved_orders[sender] = None
                                 reply = (
                                     f"Your order has been placed!\n\n"
                                     f"Order ID: {order_id}\n"
@@ -306,6 +312,7 @@ def webhook():
 
                     elif is_rejection(text):
                         waiting_confirmation[sender] = False
+                        saved_orders[sender] = None
                         send_whatsapp_message(
                             sender,
                             "Order cancelled. Type /start to start a new order.")
@@ -326,6 +333,15 @@ def webhook():
                     print(f"Address found from {sender}! Setting confirmation mode...")
                     waiting_confirmation[sender] = True
                     ai_reply = get_ai_reply(sender, text)
+
+                    # Extract and save order NOW while history is fresh
+                    order = extract_order_from_conversation(sender)
+                    if order:
+                        saved_orders[sender] = order
+                        print(f"Order pre-saved: {order}")
+                    else:
+                        print("Could not pre-save order - will try again on YES")
+
                     final_reply = (
                         ai_reply +
                         "\n\n----------------------------------------"
