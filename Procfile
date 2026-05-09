@@ -1,1 +1,1 @@
-web: gunicorn daily_fresh:app --bind 0.0.0.0:$PORT
+web: gunicorn daily_fresh:app --bind 0.0.0.0:$PORT --workers 1
