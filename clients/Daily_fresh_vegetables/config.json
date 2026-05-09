@@ -1,0 +1,50 @@
+{
+  "client_id": "dailyfresh",
+  "shop_name": "Daily Fresh Vegetables & Fruits L.L.C",
+  "business_type": "vegetables_fruits",
+  "language": ["en", "ar"],
+  "status": "active",
+
+  "whatsapp": {
+    "phone_number": "971502812485",
+    "phone_id": "1015992304941550",
+    "verify_token": "dailyfresh123"
+  },
+
+  "products": {
+    "source": "google_sheet",
+    "sheet_id": "1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s",
+    "sheet_name": "Products"
+  },
+
+  "orders": {
+    "sheet_name": "Orders"
+  },
+
+  "customers": {
+    "sheet_name": "Customers"
+  },
+
+  "settings": {
+    "delivery_charge": 0,
+    "free_delivery_above": 0,
+    "shop_hours": "8:00 AM to 12:00 PM",
+    "currency": "AED",
+    "free_delivery": true
+  },
+
+  "escalation": {
+    "human_agent": "971565893710",
+    "escalate_after_turns": 5
+  },
+
+  "branding": {
+    "greeting_en": "Welcome to Daily Fresh Vegetables & Fruits! We deliver the freshest produce to your door. How can I help you today?",
+    "greeting_ar": "مرحباً بك في ديلي فريش للخضروات والفواكه! نوصل أطازج المنتجات لباب بيتك. كيف أقدر أساعدك؟",
+    "bot_name": "Fresh Assistant"
+  },
+
+  "reminders": {
+    "change_escalation_number": "REMINDER: Change escalation from 971565893710 to owner number before go live!"
+  }
+}
