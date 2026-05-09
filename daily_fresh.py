@@ -29,8 +29,6 @@ CACHE_MINUTES = 5
 SHEET_ID = "1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s"
 SHOP_NAME = "Daily Fresh Vegetables & Fruits L.L.C"
 SHOP_HOURS = "8:00 AM to 12:00 PM"
-DELIVERY_CHARGE = 0
-FREE_DELIVERY = True
 ESCALATION_NUMBER = "971565893710"
 
 def get_sheet():
@@ -57,9 +55,12 @@ def get_products():
         records = worksheet.get_all_records()
         products = ""
         for row in records:
-            stock_status = "In Stock" if int(
-                row['Stock']) > 0 else "Out of Stock"
-            products += f"- {row['Product']} -- {row['Price_AED']} AED -- {stock_status}\n"
+            try:
+                stock = int(row['Stock']) if row['Stock'] != '' else 0
+                stock_status = "In Stock" if stock > 0 else "Out of Stock"
+            except (ValueError, KeyError):
+                stock_status = "In Stock"
+            products += f"- {row['Product']} -- {row['Price_AED']} AED per unit -- {stock_status}\n"
         products_cache = products
         products_cache_time = datetime.now()
         print("Products loaded and cached!")
@@ -94,7 +95,10 @@ def save_customer(phone, address):
                 worksheet.update(f"C{row_num}", address)
                 worksheet.update(f"D{row_num}",
                     datetime.now().strftime("%Y-%m-%d %H:%M"))
-                total = int(row.get('Total_Orders', 0)) + 1
+                try:
+                    total = int(row.get('Total_Orders', 0)) + 1
+                except ValueError:
+                    total = 1
                 worksheet.update(f"E{row_num}", str(total))
                 print(f"Customer updated: {phone}")
                 return
@@ -130,12 +134,15 @@ def extract_order_from_conversation(sender):
             conversation_text += f"{role}: {msg['content']}\n"
 
         extract_prompt = f"""Extract order details from this conversation.
-Return ONLY in this exact format:
+Return ONLY in this exact format with no extra text:
 ITEMS: [items and quantities]
-TOTAL: [number only]
+TOTAL: [number only no currency symbol]
 ADDRESS: [delivery address]
 
-If any detail is missing return: INCOMPLETE
+Rules:
+- TOTAL must be a number only like 15 or 10.5
+- If total is free or zero write 0
+- If any detail is missing return exactly: INCOMPLETE
 
 Conversation:
 {conversation_text}"""
@@ -157,7 +164,9 @@ Conversation:
                 total = line.replace("TOTAL:", "").strip()
             elif line.startswith("ADDRESS:"):
                 address = line.replace("ADDRESS:", "").strip()
-        if items and total and address:
+        if items and address:
+            if not total:
+                total = "0"
             return {"items": items, "total": total, "address": address}
         return None
     except Exception as e:
@@ -183,8 +192,7 @@ def is_confirmation(text):
         "yes", "confirm", "ok", "okay", "sure",
         "proceed", "place order", "confirmed",
         "yes please", "yep", "yeah", "go ahead",
-        "do it", "correct", "right", "accept",
-        "1", "same"
+        "do it", "correct", "right", "accept", "1", "same"
     ]
     return text.lower().strip() in confirm_words
 
@@ -212,57 +220,57 @@ def notify_escalation(sender, reason):
 
 def get_system_prompt():
     products = get_products()
-        return f"""You are a friendly shop assistant for {SHOP_NAME}.
+    return f"""You are a friendly shop assistant for {SHOP_NAME}.
 
-        YOUR JOB:
-        1. Greet customer warmly
-        2. Help them choose fresh vegetables and fruits
-        3. When they are done ask for delivery address
-        4. When customer gives address show order summary ONLY
-        5. DO NOT confirm order yourself
-        6. DO NOT say order is placed
-        7. DO NOT ask for YES or NO
-        8. The system handles confirmation automatically
+YOUR JOB:
+1. Greet customer warmly
+2. Help them choose fresh vegetables and fruits
+3. When they are done ask for delivery address
+4. When customer gives address show order summary ONLY
+5. DO NOT confirm order yourself
+6. DO NOT say order is placed
+7. DO NOT ask for YES or NO
+8. The system handles confirmation automatically
 
-        Shop Hours: {SHOP_HOURS}
-        Delivery: FREE on all orders
+Shop Hours: {SHOP_HOURS}
+Delivery: FREE on all orders
 
-        Products available:
-        {products}
+Products available:
+{products}
 
-        PRICING RULES - VERY IMPORTANT:
-        - If customer asks for 500g and product is listed per 1kg
-          calculate half price automatically
-          Example: Tomatoes 1kg = 5 AED
-                   Tomatoes 500g = 2.5 AED
-                   
-        - If customer asks for 2kg and product is listed per 1kg
-          multiply price automatically
-          Example: Tomatoes 1kg = 5 AED
-                   Tomatoes 2kg = 10 AED
+PRICING RULES - VERY IMPORTANT:
+- If customer asks for 500g and product is listed per 1kg
+  calculate half price automatically
+  Example: Tomatoes 1kg = 5 AED
+           Tomatoes 500g = 2.5 AED
 
-        - If customer asks for 250g calculate quarter price
-          Example: Tomatoes 1kg = 5 AED
-                   Tomatoes 250g = 1.25 AED
+- If customer asks for 2kg and product listed per 1kg
+  multiply price automatically
+  Example: Tomatoes 1kg = 5 AED
+           Tomatoes 2kg = 10 AED
 
-        - Always show price for each item in order
-        - Always calculate and show TOTAL price
-        - Never leave total blank
-        - Delivery is always FREE
+- If customer asks for 250g calculate quarter price
+  Example: Tomatoes 1kg = 5 AED
+           Tomatoes 250g = 1.25 AED
 
-        ORDER SUMMARY FORMAT:
-        Always show like this:
-        Items:
-        - Tomatoes 500g = 2.5 AED
-        - Apples 1kg = 8 AED
-        Total: 10.5 AED
-        Delivery: FREE
+- Always show price for each item
+- Always calculate and show TOTAL price
+- Never leave total blank
+- Delivery is always FREE
 
-        IMPORTANT RULES:
-        - If item is Out of Stock suggest similar alternative
-        - Keep replies short and friendly
-        - If customer is angry say: A manager will call you back shortly
-        - Always confirm total before asking for address"""
+ORDER SUMMARY FORMAT - always use this:
+Items:
+- Tomatoes 500g = 2.5 AED
+- Apples 1kg = 8 AED
+Total: 10.5 AED
+Delivery: FREE
+
+IMPORTANT RULES:
+- If item is Out of Stock suggest similar alternative
+- Keep replies short and friendly
+- If customer is angry say: A manager will call you back shortly
+- Always show total before asking for address"""
+
 def send_whatsapp_message(to, message):
     url = f"https://graph.facebook.com/v19.0/{WHATSAPP_PHONE_ID}/messages"
     headers = {
@@ -336,148 +344,4 @@ def webhook():
                     if customer and customer.get('Address'):
                         welcome = (
                             f"Welcome back to {SHOP_NAME}!\n"
-                            f"Great to see you again!\n"
-                            f"How can I help you today?"
-                        )
-                    else:
-                        welcome = (
-                            f"Welcome to {SHOP_NAME}!\n"
-                            f"We deliver the freshest vegetables "
-                            f"and fruits to your door!\n"
-                            f"How can I help you today?"
-                        )
-                    send_whatsapp_message(sender, welcome)
-                    return "OK", 200
-
-                # Handle address choice 1 or 2
-                if waiting_confirmation.get(sender) and text.strip() in ["1", "2"]:
-                    customer = get_customer(sender)
-                    if customer and customer.get('Address'):
-                        if text.strip() == "1":
-                            address = customer['Address']
-                        else:
-                            address = known_addresses.get(sender, "")
-
-                        conversations[sender].append({
-                            "role": "user",
-                            "content": f"My delivery address is: {address}"
-                        })
-                        order = extract_order_from_conversation(sender)
-                        if order:
-                            order['address'] = address
-                            saved_orders[sender] = order
-
-                        reply = (
-                            f"Delivery address confirmed!\n\n"
-                            f"Address: {address}\n\n"
-                            f"Reply YES to confirm your order\n"
-                            f"Reply NO to cancel"
-                        )
-                        send_whatsapp_message(sender, reply)
-                        return "OK", 200
-
-                # Waiting for YES or NO
-                if waiting_confirmation.get(sender):
-                    print(f"In confirmation mode for {sender}")
-                    if is_confirmation(text):
-                        print(f"YES from {sender}! Saving order...")
-                        order = saved_orders.get(sender)
-                        if not order:
-                            order = extract_order_from_conversation(sender)
-                        if order:
-                            order_id = save_order(
-                                sender,
-                                order["items"],
-                                order["total"],
-                                order["address"]
-                            )
-                            if order_id:
-                                save_customer(sender, order["address"])
-                                waiting_confirmation[sender] = False
-                                conversations[sender] = []
-                                saved_orders[sender] = None
-                                reply = (
-                                    f"Your order has been placed!\n\n"
-                                    f"Order ID: {order_id}\n"
-                                    f"Items: {order['items']}\n"
-                                    f"Total: FREE Delivery\n"
-                                    f"Delivery to: {order['address']}\n\n"
-                                    f"We will deliver between {SHOP_HOURS}.\n"
-                                    f"Save your Order ID: {order_id}\n\n"
-                                    f"Thank you for choosing {SHOP_NAME}!"
-                                )
-                            else:
-                                reply = "Sorry, problem saving order. Please type /start and try again."
-                        else:
-                            reply = "Sorry, could not get order details. Please type /start and try again."
-                        send_whatsapp_message(sender, reply)
-                        return "OK", 200
-
-                    elif is_rejection(text):
-                        waiting_confirmation[sender] = False
-                        saved_orders[sender] = None
-                        send_whatsapp_message(
-                            sender,
-                            "Order cancelled. Type /start to start a new order.")
-                        return "OK", 200
-                    else:
-                        send_whatsapp_message(
-                            sender,
-                            "Please reply YES to confirm or NO to cancel.")
-                        return "OK", 200
-
-                # Check for address
-                address_detected = is_address(text)
-                if address_detected:
-                    print(f"Address found from {sender}!")
-                    customer = get_customer(sender)
-                    if customer and customer.get('Address'):
-                        saved_address = customer['Address']
-                        known_addresses[sender] = text
-                        waiting_confirmation[sender] = True
-                        reply = (
-                            f"I found your previous delivery address:\n\n"
-                            f"Address: {saved_address}\n\n"
-                            f"Reply 1 for SAME ADDRESS\n"
-                            f"Reply 2 for NEW ADDRESS: {text}"
-                        )
-                        send_whatsapp_message(sender, reply)
-                        return "OK", 200
-
-                    waiting_confirmation[sender] = True
-                    ai_reply = get_ai_reply(sender, text)
-                    order = extract_order_from_conversation(sender)
-                    if order:
-                        saved_orders[sender] = order
-                        print(f"Order pre-saved: {order}")
-
-                    final_reply = (
-                        ai_reply +
-                        "\n\n----------------------------------------"
-                        "\nReply YES to confirm your order"
-                        "\nReply NO to cancel"
-                    )
-                    send_whatsapp_message(sender, final_reply)
-                    return "OK", 200
-
-                # Check for complaint or escalation
-                complaint_words = ["complaint", "problem", "wrong",
-                                  "bad", "terrible", "manager",
-                                  "refund", "angry", "worst"]
-                if any(word in text.lower() for word in complaint_words):
-                    notify_escalation(sender, text)
-
-                # Normal conversation
-                reply = get_ai_reply(sender, text)
-                send_whatsapp_message(sender, reply)
-
-    except Exception as e:
-        print(f"Error: {e}")
-    return "OK", 200
-
-if __name__ == "__main__":
-    print("=" * 45)
-    print(f"  {SHOP_NAME}")
-    print("  AI Agent is LIVE!")
-    print("=" * 45)
-    app.run(port=5000, debug=True)
+                            f"Great to see you
