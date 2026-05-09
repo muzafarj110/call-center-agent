@@ -22,6 +22,7 @@ conversations = {}
 waiting_confirmation = {}
 saved_orders = {}
 known_addresses = {}
+address_prompted = {}
 products_cache = ""
 products_cache_time = None
 CACHE_MINUTES = 5
@@ -56,7 +57,8 @@ def get_products():
         products = ""
         for row in records:
             try:
-                stock = int(row['Stock']) if str(row['Stock']).strip() != '' else 0
+                stock = int(row['Stock']) if str(
+                    row['Stock']).strip() != '' else 0
                 stock_status = "In Stock" if stock > 0 else "Out of Stock"
             except (ValueError, KeyError):
                 stock_status = "In Stock"
@@ -142,8 +144,6 @@ ADDRESS: [delivery address]
 Rules:
 - TOTAL must be a number only like 15 or 10.5
 - If total is free or zero write 0
-- Extract partial info too - do not return INCOMPLETE
-  if you have at least items and address
 - If truly nothing found return: INCOMPLETE
 
 Conversation:
@@ -179,35 +179,6 @@ Conversation:
         print(f"Extract error: {e}")
         return None
 
-def detect_missing_info(sender):
-    try:
-        history = conversations.get(sender, [])
-        conversation_text = ""
-        for msg in history:
-            role = "Customer" if msg["role"] == "user" else "Agent"
-            conversation_text += f"{role}: {msg['content']}\n"
-
-        check_prompt = f"""Check this conversation for missing order details.
-
-Return ONLY one of these:
-MISSING_ITEMS - if no products ordered yet
-MISSING_ADDRESS - if no delivery address given
-MISSING_TOTAL - if no total calculated
-COMPLETE - if items, total and address all found
-
-Conversation:
-{conversation_text}"""
-
-        response = client.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=100,
-            messages=[{"role": "user", "content": check_prompt}]
-        )
-        return response.content[0].text.strip()
-    except Exception as e:
-        print(f"Missing info check error: {e}")
-        return "COMPLETE"
-
 def is_address(text):
     address_keywords = [
         "villa", "apartment", "flat", "building", "street",
@@ -242,6 +213,20 @@ def is_rejection(text):
         "لا", "الغ", "الغاء", "توقف", "لأ"
     ]
     return text.lower().strip() in reject_words
+
+def is_asking_for_address(reply):
+    phrases = [
+        "delivery address", "عنوان التوصيل",
+        "share your address", "عنوانك",
+        "your address", "عنوان التوصيل",
+        "where to deliver", "اين نوصل",
+        "please share", "من فضلك",
+        "address so", "عنوان لتوصيل",
+        "ممكن تعطيني عنوان",
+        "عنوان توصيل"
+    ]
+    reply_lower = reply.lower()
+    return any(phrase in reply_lower for phrase in phrases)
 
 def notify_escalation(sender, reason):
     try:
@@ -286,14 +271,7 @@ YOUR JOB:
 6. DO NOT say order is placed
 7. DO NOT ask for YES or NO - system handles this
 8. If anything is missing ask ONLY for that missing thing
-
-MISSING INFO RULES - VERY IMPORTANT:
-- If items are missing - ask only for items
-- If address is missing - ask only for address
-- If total is missing - calculate it yourself
-- NEVER ask customer to start over or type /start
-- NEVER say there is a technical problem
-- Just ask for the one missing thing politely
+9. NEVER ask customer to start over or type /start
 
 Shop Hours: {SHOP_HOURS}
 Delivery: FREE on all orders
@@ -301,24 +279,12 @@ Delivery: FREE on all orders
 Products available:
 {products}
 
-PRICING RULES - VERY IMPORTANT:
-- If customer asks for 500g and product listed per 1kg
-  calculate half price automatically
-  Example: Tomatoes 1kg = 5 AED
-           Tomatoes 500g = 2.5 AED
-
-- If customer asks for 2kg and product listed per 1kg
-  multiply price automatically
-  Example: Tomatoes 1kg = 5 AED
-           Tomatoes 2kg = 10 AED
-
-- If customer asks for 250g calculate quarter price
-  Example: Tomatoes 1kg = 5 AED
-           Tomatoes 250g = 1.25 AED
-
-- Always show price for each item
-- Always calculate and show TOTAL price
-- Never leave total blank
+PRICING RULES:
+- 500g of 1kg product = half price
+- 2kg of 1kg product = double price
+- 250g of 1kg product = quarter price
+- Always calculate and show price for each item
+- Always show TOTAL
 - Delivery is always FREE
 
 ORDER SUMMARY FORMAT in English:
@@ -336,9 +302,9 @@ ORDER SUMMARY FORMAT in Arabic:
 التوصيل: مجاني
 
 IMPORTANT RULES:
-- If item Out of Stock suggest similar alternative
+- If item Out of Stock suggest alternative
 - Keep replies short and friendly
-- If customer angry say in their language:
+- If customer angry:
   English: A manager will call you back shortly
   Arabic: سيتصل بك المدير قريباً
 - Always show total before asking for address
@@ -383,23 +349,6 @@ def get_ai_reply(sender, message):
     })
     return reply
 
-def ask_for_missing_info(sender):
-    missing = detect_missing_info(sender)
-    print(f"Missing info: {missing}")
-
-    if missing == "MISSING_ITEMS":
-        return get_ai_reply(sender,
-            "System: Ask customer what they want to order")
-    elif missing == "MISSING_ADDRESS":
-        return get_ai_reply(sender,
-            "System: Ask customer only for their delivery address")
-    elif missing == "MISSING_TOTAL":
-        return get_ai_reply(sender,
-            "System: Calculate total from items and show order summary")
-    else:
-        return get_ai_reply(sender,
-            "System: Show complete order summary and ask for address")
-
 @app.route("/webhook", methods=["GET"])
 def verify():
     mode = request.args.get("hub.mode")
@@ -430,6 +379,7 @@ def webhook():
                     waiting_confirmation[sender] = False
                     saved_orders[sender] = None
                     known_addresses[sender] = None
+                    address_prompted[sender] = False
                     customer = get_customer(sender)
                     if customer and customer.get('Address'):
                         welcome = (
@@ -458,8 +408,19 @@ def webhook():
                     if customer and customer.get('Address'):
                         if text.strip() == "1":
                             address = customer['Address']
+                            print(f"Using saved address: {address}")
                         else:
                             address = known_addresses.get(sender, "")
+                            if not address:
+                                # Ask for new address
+                                waiting_confirmation[sender] = False
+                                reply = (
+                                    "Please share your new delivery address.\n\n"
+                                    "من فضلك شارك عنوانك الجديد للتوصيل."
+                                )
+                                send_whatsapp_message(sender, reply)
+                                return "OK", 200
+
                         conversations[sender].append({
                             "role": "user",
                             "content": f"My delivery address is: {address}"
@@ -468,11 +429,17 @@ def webhook():
                         if order:
                             order['address'] = address
                             saved_orders[sender] = order
+
                         reply = (
                             f"Delivery address confirmed!\n\n"
                             f"Address: {address}\n\n"
-                            f"Reply YES to confirm / نعم للتأكيد\n"
-                            f"Reply NO to cancel / لا للإلغاء"
+                            f"Reply YES to confirm your order\n"
+                            f"Reply NO to cancel\n\n"
+                            f"---\n"
+                            f"تم تأكيد العنوان!\n\n"
+                            f"العنوان: {address}\n\n"
+                            f"اكتب نعم لتأكيد الطلب\n"
+                            f"اكتب لا للإلغاء"
                         )
                         send_whatsapp_message(sender, reply)
                         return "OK", 200
@@ -486,22 +453,7 @@ def webhook():
                         if not order:
                             order = extract_order_from_conversation(sender)
 
-                        if order:
-                            # Check if anything missing
-                            if not order.get('items'):
-                                reply = get_ai_reply(sender,
-                                    "System: Ask customer what they want to order")
-                                waiting_confirmation[sender] = False
-                                send_whatsapp_message(sender, reply)
-                                return "OK", 200
-
-                            if not order.get('address'):
-                                reply = get_ai_reply(sender,
-                                    "System: Ask customer only for delivery address")
-                                waiting_confirmation[sender] = False
-                                send_whatsapp_message(sender, reply)
-                                return "OK", 200
-
+                        if order and order.get('items') and order.get('address'):
                             order_id = save_order(
                                 sender,
                                 order["items"],
@@ -513,7 +465,9 @@ def webhook():
                                 waiting_confirmation[sender] = False
                                 conversations[sender] = []
                                 saved_orders[sender] = None
-                                total_display = "FREE" if order['total'] == "0" else f"{order['total']} AED"
+                                address_prompted[sender] = False
+                                total_display = "FREE" if order[
+                                    'total'] == "0" else f"{order['total']} AED"
                                 reply = (
                                     f"Your order has been placed!\n\n"
                                     f"Order ID: {order_id}\n"
@@ -535,15 +489,23 @@ def webhook():
                                 )
                             else:
                                 reply = (
-                                    f"Sorry, there was a problem saving your order.\n"
+                                    f"Sorry, problem saving order.\n"
                                     f"Our team will contact you shortly.\n\n"
-                                    f"عذراً، حدث خطأ في حفظ طلبك.\n"
+                                    f"عذراً، حدث خطأ.\n"
                                     f"سيتواصل معك فريقنا قريباً."
                                 )
-                        else:
-                            # Ask for missing info instead of asking to restart
-                            reply = ask_for_missing_info(sender)
+                        elif order and order.get('items') and not order.get('address'):
+                            # Missing address - ask for it
                             waiting_confirmation[sender] = False
+                            reply = (
+                                "Please share your delivery address to complete the order.\n\n"
+                                "من فضلك شارك عنوانك لإكمال الطلب."
+                            )
+                        else:
+                            # Missing items - ask for them
+                            waiting_confirmation[sender] = False
+                            reply = get_ai_reply(sender,
+                                "System: Customer said yes but order details unclear. Ask what they want to order.")
 
                         send_whatsapp_message(sender, reply)
                         return "OK", 200
@@ -551,6 +513,7 @@ def webhook():
                     elif is_rejection(text):
                         waiting_confirmation[sender] = False
                         saved_orders[sender] = None
+                        address_prompted[sender] = False
                         send_whatsapp_message(
                             sender,
                             "Order cancelled.\n"
@@ -558,16 +521,17 @@ def webhook():
                             "تم إلغاء الطلب.\n"
                             "كيف أقدر أساعدك؟")
                         return "OK", 200
+
                     else:
                         send_whatsapp_message(
                             sender,
-                            "Please reply YES to confirm or NO to cancel.\n"
+                            "Please reply YES to confirm or NO to cancel.\n\n"
                             "الرجاء الرد بنعم للتأكيد أو لا للإلغاء.")
                         return "OK", 200
 
-                # Check for address
+                # Check for address typed by customer
                 address_detected = is_address(text)
-                if address_detected:
+                if address_detected and not waiting_confirmation.get(sender):
                     print(f"Address found from {sender}!")
                     customer = get_customer(sender)
                     if customer and customer.get('Address'):
@@ -575,12 +539,12 @@ def webhook():
                         known_addresses[sender] = text
                         waiting_confirmation[sender] = True
                         reply = (
-                            f"I found your previous delivery address:\n\n"
+                            f"I found your saved address:\n\n"
                             f"Address: {saved_address}\n\n"
                             f"Reply 1 for SAME ADDRESS\n"
                             f"Reply 2 for NEW ADDRESS: {text}\n\n"
                             f"---\n"
-                            f"وجدت عنوانك السابق:\n\n"
+                            f"وجدت عنوانك المحفوظ:\n\n"
                             f"العنوان: {saved_address}\n\n"
                             f"اكتب 1 لنفس العنوان\n"
                             f"اكتب 2 للعنوان الجديد: {text}"
@@ -604,6 +568,32 @@ def webhook():
                     send_whatsapp_message(sender, final_reply)
                     return "OK", 200
 
+                # Normal conversation
+                reply = get_ai_reply(sender, text)
+
+                # Check if agent is asking for address
+                # and customer has a saved address
+                if is_asking_for_address(reply) and not address_prompted.get(sender):
+                    customer = get_customer(sender)
+                    if customer and customer.get('Address'):
+                        saved_address = customer['Address']
+                        address_prompted[sender] = True
+                        waiting_confirmation[sender] = True
+                        known_addresses[sender] = ""
+                        reply = (
+                            f"{reply}\n\n"
+                            f"----------------------------------------\n"
+                            f"I found your saved address:\n"
+                            f"Address: {saved_address}\n\n"
+                            f"Reply 1 for SAME ADDRESS\n"
+                            f"Reply 2 to enter NEW ADDRESS\n\n"
+                            f"---\n"
+                            f"وجدت عنوانك المحفوظ:\n"
+                            f"العنوان: {saved_address}\n\n"
+                            f"اكتب 1 لنفس العنوان\n"
+                            f"اكتب 2 لإدخال عنوان جديد"
+                        )
+
                 # Check for complaint
                 complaint_words = [
                     "complaint", "problem", "wrong", "bad",
@@ -613,8 +603,6 @@ def webhook():
                 if any(word in text.lower() for word in complaint_words):
                     notify_escalation(sender, text)
 
-                # Normal conversation
-                reply = get_ai_reply(sender, text)
                 send_whatsapp_message(sender, reply)
 
     except Exception as e:
