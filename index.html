@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>AIShop Admin Dashboard</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e}
+.header{background:#1a1a2e;color:white;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100}
+.header h1{font-size:16px;font-weight:600}
+.header-right{display:flex;align-items:center;gap:10px}
+.notif-btn{background:rgba(255,255,255,0.1);border:none;color:white;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px}
+.notif-badge{background:#ef4444;color:white;border-radius:999px;padding:2px 6px;font-size:11px;font-weight:600}
+.last-update{font-size:11px;opacity:0.6}
+.container{max-width:900px;margin:0 auto;padding:16px}
+.stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+@media(min-width:600px){.stats-grid{grid-template-columns:repeat(4,1fr)}}
+.stat-card{background:white;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
+.stat-label{font-size:11px;color:#666;margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.stat-value{font-size:24px;font-weight:600;color:#1a1a2e}
+.stat-sub{font-size:11px;color:#22c55e;margin-top:3px}
+.section{background:white;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
+.section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px}
+.section-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px}
+.badge{padding:3px 9px;border-radius:999px;font-size:11px;font-weight:500}
+.badge-green{background:#dcfce7;color:#166534}
+.badge-red{background:#fee2e2;color:#991b1b}
+.badge-blue{background:#dbeafe;color:#1e40af}
+.badge-amber{background:#fef3c7;color:#92400e}
+.badge-gray{background:#f3f4f6;color:#374151}
+.order-card{border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px;transition:all .2s}
+.order-card.pending{border-color:#ef4444;background:#fff8f8}
+.order-card.escalated{border-color:#dc2626;background:#fef2f2;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.8}}
+.order-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+.order-id{font-weight:600;font-size:14px;color:#1a1a2e}
+.order-time{font-size:11px;color:#999}
+.order-items{font-size:13px;color:#374151;margin-bottom:6px}
+.order-address{font-size:12px;color:#666;display:flex;align-items:flex-start;gap:4px}
+.order-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;flex-wrap:wrap;gap:6px}
+.total-display{font-weight:600;font-size:14px;color:#1a1a2e}
+.timer{font-size:11px;color:#ef4444;font-weight:500;background:#fee2e2;padding:2px 8px;border-radius:999px}
+.action-btns{display:flex;gap:6px;flex-wrap:wrap}
+.btn{padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;border:none;font-weight:500}
+.btn-green{background:#22c55e;color:white}
+.btn-red{background:#ef4444;color:white}
+.btn-blue{background:#3b82f6;color:white}
+.btn-gray{background:#f0f0f0;color:#666}
+.search-bar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.search-bar input{flex:1;min-width:200px;padding:9px 12px;border:1px solid #e0e0e0;border-radius:8px;font-size:13px;outline:none}
+.search-bar input:focus{border-color:#3b82f6}
+.search-bar button{padding:9px 16px;background:#1a1a2e;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap}
+.empty{text-align:center;padding:30px;color:#999;font-size:13px}
+.client-card{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}
+.client-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px}
+.client-name{font-weight:600;font-size:14px}
+.client-info{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:#666}
+.notification-panel{position:fixed;top:60px;right:10px;width:300px;background:white;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:200;padding:16px;display:none;max-height:400px;overflow-y:auto}
+.notif-item{padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+.notif-item:last-child{border:none}
+.notif-time{font-size:11px;color:#999;margin-top:3px}
+.escalation-alert{background:#fee2e2;border:2px solid #ef4444;border-radius:10px;padding:12px;margin-bottom:14px;display:none}
+.escalation-title{font-weight:600;color:#991b1b;font-size:14px;margin-bottom:6px}
+.escalation-item{font-size:13px;color:#7f1d1d;padding:4px 0}
+.tab-bar{display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;padding-bottom:4px}
+.tab{padding:8px 16px;border-radius:8px;border:1px solid #e0e0e0;background:white;font-size:13px;cursor:pointer;white-space:nowrap;font-weight:500}
+.tab.active{background:#1a1a2e;color:white;border-color:#1a1a2e}
+.panel{display:none}.panel.active{display:block}
+.revenue-green{color:#22c55e;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+.dot-green{background:#22c55e}
+.dot-red{background:#ef4444}
+.dot-amber{background:#f59e0b}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>AIShop Admin Dashboard</h1>
+  <div class="header-right">
+    <button class="notif-btn" onclick="toggleNotifications()">
+      🔔 <span id="notif-count" class="notif-badge" style="display:none">0</span>
+    </button>
+    <div class="last-update" id="last-update">Loading...</div>
+  </div>
+</div>
+
+<div class="notification-panel" id="notif-panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <strong style="font-size:14px">Notifications</strong>
+    <button onclick="clearNotifications()" style="font-size:11px;color:#666;background:none;border:none;cursor:pointer">Clear all</button>
+  </div>
+  <div id="notif-list"><div class="empty">No notifications</div></div>
+</div>
+
+<div class="container">
+
+  <div id="escalation-banner" class="escalation-alert">
+    <div class="escalation-title">⚠️ Escalation Alert — Action Required!</div>
+    <div id="escalation-list"></div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">🔴 Pending</div>
+      <div class="stat-value" id="stat-pending">0</div>
+      <div class="stat-sub">need action</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">📦 Today</div>
+      <div class="stat-value" id="stat-today">0</div>
+      <div class="stat-sub">orders today</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">✅ Delivered</div>
+      <div class="stat-value" id="stat-delivered">0</div>
+      <div class="stat-sub">completed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">💰 Revenue</div>
+      <div class="stat-value" id="stat-revenue">598</div>
+      <div class="stat-sub revenue-green">AED/month</div>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab active" onclick="showTab('pending-tab')">🔴 Pending Orders</button>
+    <button class="tab" onclick="showTab('all-tab')">📋 All Orders</button>
+    <button class="tab" onclick="showTab('clients-tab')">🏪 Clients</button>
+  </div>
+
+  <div id="pending-tab" class="panel active">
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">🔴 Pending Orders</div>
+        <button onclick="loadDashboard()" class="btn btn-gray">↻ Refresh</button>
+      </div>
+      <div id="pending-orders-list"><div class="empty">Loading...</div></div>
+    </div>
+  </div>
+
+  <div id="all-tab" class="panel">
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">📋 All Orders</div>
+        <span class="badge badge-blue" id="all-orders-count">0 orders</span>
+      </div>
+      <div class="search-bar">
+        <input id="order-search" placeholder="Search by Order ID or phone..." oninput="filterOrders()">
+      </div>
+      <div id="all-orders-list"><div class="empty">Loading...</div></div>
+    </div>
+  </div>
+
+  <div id="clients-tab" class="panel">
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">🏪 Your Clients</div>
+        <span class="badge badge-green" id="clients-count">0 active</span>
+      </div>
+      <div id="clients-list"><div class="empty">Loading...</div></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const CLIENTS=[
+  {id:"dailyfresh",name:"Daily Fresh Vegetables & Fruits L.L.C",type:"Vegetables & Fruits",
+   whatsapp:"971502812485",sheetId:"1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s",
+   status:"active",plan:"Starter",monthlyFee:299,joinDate:"2026-05-09",
+   managerNumber:"971565893710"},
+  {id:"freshmart",name:"Fresh Mart Supermarket",type:"Supermarket",
+   whatsapp:"971544007555",sheetId:"1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM",
+   status:"active",plan:"Starter",monthlyFee:299,joinDate:"2026-05-01",
+   managerNumber:"971565893710"}
+];
+
+const ESCALATION_MINUTES=5;
+const RAILWAY_URL="https://call-center-agent-production.up.railway.app";
+
+let allOrders=[];
+let notifications=[];
+let knownOrderIds=new Set();
+let orderTimers={};
+let notifShown=false;
+
+async function fetchSheet(sheetId,tab){
+  try{
+    const url=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tab)}`;
+    const res=await fetch(url);
+    const text=await res.text();
+    const json=JSON.parse(text.substring(47).slice(0,-2));
+    const cols=json.table.cols.map(c=>c.label);
+    return json.table.rows.map(row=>{
+      const obj={};
+      row.c.forEach((cell,i)=>{obj[cols[i]]=cell?cell.v:""});
+      return obj;
+    });
+  }catch(e){return[];}
+}
+
+async function loadDashboard(){
+  allOrders=[];
+  for(const client of CLIENTS){
+    try{
+      const orders=await fetchSheet(client.sheetId,'Orders');
+      orders.forEach(o=>{
+        allOrders.push({...o,clientName:client.name,clientId:client.id,
+          managerNumber:client.managerNumber,sheetId:client.sheetId});
+      });
+    }catch(e){}
+  }
+  checkNewOrders();
+  checkEscalations();
+  updateStats();
+  renderPendingOrders();
+  renderAllOrders();
+  renderClients();
+  document.getElementById('last-update').textContent='Updated: '+new Date().toLocaleTimeString();
+}
+
+function checkNewOrders(){
+  allOrders.forEach(o=>{
+    const id=o.Order_ID;
+    if(id&&!knownOrderIds.has(id)){
+      if(knownOrderIds.size>0){
+        addNotification(`New order ${id} from ${o.Customer_Phone||'customer'} — ${o.clientName}`);
+        if(Notification.permission==='granted'){
+          new Notification('New Order!',{body:`Order ${id} — ${o.Items||''}`,icon:'https://img.icons8.com/color/48/shopping-cart.png'});
+        }
+      }
+      knownOrderIds.add(id);
+      if((o.Status||'New')==='New'&&id){
+        startEscalationTimer(o);
+      }
+    }
+  });
+}
+
+function startEscalationTimer(order){
+  const id=order.Order_ID;
+  if(orderTimers[id])return;
+  const ms=ESCALATION_MINUTES*60*1000;
+  orderTimers[id]=setTimeout(()=>{
+    const current=allOrders.find(o=>o.Order_ID===id);
+    if(current&&(current.Status||'New')==='New'){
+      addNotification(`⚠️ ESCALATION: Order ${id} pending for ${ESCALATION_MINUTES} mins!`);
+      sendEscalationAlert(order);
+      renderPendingOrders();
+    }
+  },ms);
+}
+
+function sendEscalationAlert(order){
+  const msg=`ESCALATION ALERT!\nOrder ${order.Order_ID} has been pending for ${ESCALATION_MINUTES} minutes!\nClient: ${order.clientName}\nItems: ${order.Items||'N/A'}\nAddress: ${order.Address||'N/A'}\nPlease take action immediately!`;
+  fetch(`${RAILWAY_URL}/escalate`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({to:order.managerNumber,message:msg})
+  }).catch(e=>console.log('Escalation API call:',e));
+}
+
+function checkEscalations(){
+  const now=new Date();
+  const escalated=allOrders.filter(o=>{
+    if((o.Status||'New')!=='New')return false;
+    if(!o.Date_Time)return false;
+    try{
+      const orderTime=new Date(o.Date_Time);
+      const diffMins=(now-orderTime)/(1000*60);
+      return diffMins>ESCALATION_MINUTES;
+    }catch(e){return false;}
+  });
+
+  const banner=document.getElementById('escalation-banner');
+  const list=document.getElementById('escalation-list');
+  if(escalated.length>0){
+    banner.style.display='block';
+    list.innerHTML=escalated.map(o=>
+      `<div class="escalation-item">⚡ Order ${o.Order_ID} — ${o.clientName} — ${o.Items||''}</div>`
+    ).join('');
+  }else{
+    banner.style.display='none';
+  }
+}
+
+function getOrderAge(dateStr){
+  if(!dateStr)return 0;
+  try{
+    const orderTime=new Date(dateStr);
+    const diffMins=(new Date()-orderTime)/(1000*60);
+    return Math.round(diffMins);
+  }catch(e){return 0;}
+}
+
+function updateStats(){
+  const today=new Date().toISOString().split('T')[0];
+  const pending=allOrders.filter(o=>(o.Status||'New')==='New').length;
+  const todayOrders=allOrders.filter(o=>o.Date_Time&&o.Date_Time.toString().includes(today)).length;
+  const delivered=allOrders.filter(o=>o.Status==='Delivered').length;
+  document.getElementById('stat-pending').textContent=pending;
+  document.getElementById('stat-today').textContent=todayOrders;
+  document.getElementById('stat-delivered').textContent=delivered;
+}
+
+function renderPendingOrders(){
+  const pending=allOrders.filter(o=>(o.Status||'New')==='New');
+  const el=document.getElementById('pending-orders-list');
+  if(pending.length===0){
+    el.innerHTML='<div class="empty">No pending orders! All clear ✅</div>';
+    return;
+  }
+  el.innerHTML=pending.slice().reverse().map(o=>{
+    const age=getOrderAge(o.Date_Time);
+    const isEscalated=age>ESCALATION_MINUTES;
+    const total=parseFloat(o.Total_AED||o.Total||0);
+    const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+    return `<div class="order-card pending ${isEscalated?'escalated':''}">
+      <div class="order-header">
+        <div>
+          <div class="order-id">📦 ${o.Order_ID||'-'}</div>
+          <div class="order-time">${o.Date_Time||''} • ${o.clientName||''}</div>
+        </div>
+        <span class="badge badge-${isEscalated?'red':'amber'}">${isEscalated?'⚠️ Escalated':'🕐 Pending'}</span>
+      </div>
+      <div class="order-items">${o.Items||'-'}</div>
+      <div class="order-address">📍 ${o.Address||'-'}</div>
+      <div class="order-footer">
+        <div>
+          <div class="total-display">${totalDisp}</div>
+          ${age>0?`<div class="timer">⏱ ${age} min ago${isEscalated?' — ESCALATED':''}</div>`:''}
+        </div>
+        <div class="action-btns">
+          <button class="btn btn-green" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Delivered')">✓ Delivered</button>
+          <button class="btn btn-red" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Cancelled')">✗ Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderAllOrders(){
+  const search=document.getElementById('order-search').value.toLowerCase();
+  const filtered=allOrders.filter(o=>
+    !search||
+    (o.Order_ID||'').toLowerCase().includes(search)||
+    (o.Customer_Phone||'').includes(search)
+  );
+  document.getElementById('all-orders-count').textContent=`${filtered.length} orders`;
+  const el=document.getElementById('all-orders-list');
+  if(filtered.length===0){el.innerHTML='<div class="empty">No orders found</div>';return;}
+  el.innerHTML=filtered.slice().reverse().slice(0,50).map(o=>{
+    const status=o.Status||'New';
+    const badgeClass=status==='New'?'amber':status==='Delivered'?'green':status==='Cancelled'?'red':'blue';
+    const total=parseFloat(o.Total_AED||o.Total||0);
+    const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+    return `<div class="order-card">
+      <div class="order-header">
+        <div>
+          <div class="order-id">${o.Order_ID||'-'}</div>
+          <div class="order-time">${o.Customer_Phone||''} • ${o.clientName||''}</div>
+        </div>
+        <span class="badge badge-${badgeClass}">${status}</span>
+      </div>
+      <div class="order-items">${o.Items||'-'}</div>
+      <div class="order-address">📍 ${o.Address||'-'} • ${o.Date_Time||''}</div>
+      <div class="order-footer">
+        <div class="total-display">${totalDisp}</div>
+        ${status==='New'?`<div class="action-btns">
+          <button class="btn btn-green" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Delivered')">✓ Delivered</button>
+          <button class="btn btn-red" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Cancelled')">✗ Cancel</button>
+        </div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderClients(){
+  const el=document.getElementById('clients-list');
+  const active=CLIENTS.filter(c=>c.status==='active').length;
+  document.getElementById('clients-count').textContent=`${active} active`;
+  el.innerHTML=CLIENTS.map(c=>{
+    const clientOrders=allOrders.filter(o=>o.clientId===c.id);
+    const pending=clientOrders.filter(o=>(o.Status||'New')==='New').length;
+    return `<div class="client-card">
+      <div class="client-header">
+        <div class="client-name">${c.name}</div>
+        <span class="badge badge-${c.status==='active'?'green':'red'}">
+          <span class="dot dot-${c.status==='active'?'green':'red'}"></span>${c.status}
+        </span>
+      </div>
+      <div class="client-info">
+        <div>📱 +${c.whatsapp}</div>
+        <div>📋 ${c.plan} — ${c.monthlyFee} AED/mo</div>
+        <div>📦 ${clientOrders.length} total orders</div>
+        <div>🔴 ${pending} pending</div>
+        <div>📅 Since ${c.joinDate}</div>
+        <div>🏪 ${c.type}</div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <a href="https://docs.google.com/spreadsheets/d/${c.sheetId}" target="_blank">
+          <button class="btn btn-blue">📊 View Sheet</button>
+        </a>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateStatus(orderId,clientName,newStatus){
+  const order=allOrders.find(o=>o.Order_ID===orderId);
+  if(order){
+    order.Status=newStatus;
+    if(orderTimers[orderId]){clearTimeout(orderTimers[orderId]);delete orderTimers[orderId];}
+    addNotification(`Order ${orderId} marked as ${newStatus}`);
+    renderPendingOrders();
+    renderAllOrders();
+    updateStats();
+  }
+}
+
+function addNotification(msg){
+  notifications.unshift({msg,time:new Date().toLocaleTimeString()});
+  if(notifications.length>20)notifications=notifications.slice(0,20);
+  const count=document.getElementById('notif-count');
+  count.style.display='inline';
+  count.textContent=notifications.length;
+  renderNotifications();
+}
+
+function renderNotifications(){
+  const el=document.getElementById('notif-list');
+  if(notifications.length===0){el.innerHTML='<div class="empty">No notifications</div>';return;}
+  el.innerHTML=notifications.map(n=>`
+    <div class="notif-item">
+      <div>${n.msg}</div>
+      <div class="notif-time">${n.time}</div>
+    </div>`).join('');
+}
+
+function toggleNotifications(){
+  const panel=document.getElementById('notif-panel');
+  panel.style.display=panel.style.display==='block'?'none':'block';
+  if(panel.style.display==='block'){
+    document.getElementById('notif-count').style.display='none';
+  }
+}
+
+function clearNotifications(){
+  notifications=[];
+  document.getElementById('notif-count').style.display='none';
+  renderNotifications();
+}
+
+function filterOrders(){renderAllOrders();}
+
+function showTab(id){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+function requestNotificationPermission(){
+  if('Notification' in window&&Notification.permission==='default'){
+    Notification.requestPermission();
+  }
+}
+
+requestNotificationPermission();
+loadDashboard();
+setInterval(loadDashboard,30000);
+</script>
+</body>
+</html>

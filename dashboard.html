@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShopBot Admin Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; }
+.header { background: #1a1a2e; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header span { font-size: 13px; opacity: 0.7; }
+.container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.stat-label { font-size: 13px; color: #666; margin-bottom: 8px; }
+.stat-value { font-size: 28px; font-weight: 600; color: #1a1a2e; }
+.stat-sub { font-size: 12px; color: #22c55e; margin-top: 4px; }
+.section { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.section-title { font-size: 16px; font-weight: 600; }
+.badge { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+.badge-green { background: #dcfce7; color: #166534; }
+.badge-red { background: #fee2e2; color: #991b1b; }
+.badge-blue { background: #dbeafe; color: #1e40af; }
+.badge-amber { background: #fef3c7; color: #92400e; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; padding: 10px 12px; font-size: 12px; font-weight: 500; color: #666; border-bottom: 1px solid #f0f0f0; background: #fafafa; }
+td { padding: 12px; font-size: 13px; border-bottom: 1px solid #f9f9f9; }
+tr:last-child td { border: none; }
+tr:hover td { background: #fafafa; }
+.client-name { font-weight: 500; }
+.btn { padding: 6px 14px; border-radius: 8px; font-size: 12px; cursor: pointer; border: none; font-weight: 500; }
+.btn-blue { background: #3b82f6; color: white; }
+.btn-green { background: #22c55e; color: white; }
+.btn-gray { background: #f0f0f0; color: #666; }
+.loading { text-align: center; padding: 40px; color: #666; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.dot-green { background: #22c55e; }
+.dot-red { background: #ef4444; }
+.refresh-btn { background: #f0f0f0; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.refresh-btn:hover { background: #e0e0e0; }
+.empty { text-align: center; padding: 30px; color: #999; font-size: 14px; }
+.revenue-positive { color: #22c55e; font-weight: 500; }
+input.search { padding: 8px 14px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 13px; outline: none; width: 200px; }
+input.search:focus { border-color: #3b82f6; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>ShopBot Admin Dashboard</h1>
+  <span id="last-updated">Loading...</span>
+</div>
+
+<div class="container">
+
+  <!-- Stats Row -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Total Clients</div>
+      <div class="stat-value" id="total-clients">-</div>
+      <div class="stat-sub" id="active-clients">- active</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Orders Today</div>
+      <div class="stat-value" id="orders-today">-</div>
+      <div class="stat-sub" id="orders-week">- this week</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Orders</div>
+      <div class="stat-value" id="total-orders">-</div>
+      <div class="stat-sub">all time</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Monthly Revenue</div>
+      <div class="stat-value" id="monthly-revenue">-</div>
+      <div class="stat-sub">AED subscription fees</div>
+    </div>
+  </div>
+
+  <!-- Clients Table -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Your Clients</div>
+      <div style="display:flex;gap:8px">
+        <input class="search" id="client-search" placeholder="Search clients..." oninput="filterClients()">
+        <button class="refresh-btn" onclick="loadDashboard()">Refresh</button>
+      </div>
+    </div>
+    <div id="clients-table">
+      <div class="loading">Loading clients...</div>
+    </div>
+  </div>
+
+  <!-- Recent Orders -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">Recent Orders (All Clients)</div>
+      <span class="badge badge-blue" id="orders-badge">Loading...</span>
+    </div>
+    <div id="orders-table">
+      <div class="loading">Loading orders...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// =============================================
+// CONFIGURE YOUR CLIENTS HERE
+// Add each client below
+// =============================================
+const CLIENTS = [
+  {
+    id: "dailyfresh",
+    name: "Daily Fresh Vegetables & Fruits L.L.C",
+    type: "Vegetables & Fruits",
+    whatsapp: "971502812485",
+    sheetId: "1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s",
+    status: "active",
+    plan: "Starter",
+    monthlyFee: 299,
+    joinDate: "2026-05-09",
+    agentUrl: "https://call-center-agent-production.up.railway.app"
+  },
+  {
+    id: "freshmart",
+    name: "Fresh Mart Supermarket",
+    type: "Supermarket",
+    whatsapp: "971544007555",
+    sheetId: "1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM",
+    status: "active",
+    plan: "Starter",
+    monthlyFee: 299,
+    joinDate: "2026-05-01",
+    agentUrl: "https://call-center-agent-production.up.railway.app"
+  }
+];
+
+let allOrders = [];
+let allClients = [...CLIENTS];
+
+async function fetchSheetData(sheetId, tabName) {
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${tabName}`;
+    const res = await fetch(url);
+    const text = await res.text();
+    const json = JSON.parse(text.substring(47).slice(0, -2));
+    const rows = json.table.rows;
+    const cols = json.table.cols.map(c => c.label);
+    return rows.map(row => {
+      const obj = {};
+      row.c.forEach((cell, i) => {
+        obj[cols[i]] = cell ? cell.v : "";
+      });
+      return obj;
+    });
+  } catch (e) {
+    console.error(`Error fetching ${tabName}:`, e);
+    return [];
+  }
+}
+
+function getToday() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function getThisWeek() {
+  const d = new Date();
+  d.setDate(d.getDate() - 7);
+  return d.toISOString().split('T')[0];
+}
+
+async function loadDashboard() {
+  document.getElementById('last-updated').textContent = 'Updating...';
+  allOrders = [];
+
+  // Load orders from all clients
+  for (const client of CLIENTS) {
+    try {
+      const orders = await fetchSheetData(client.sheetId, 'Orders');
+      orders.forEach(order => {
+        allOrders.push({
+          ...order,
+          clientName: client.name,
+          clientId: client.id
+        });
+      });
+    } catch (e) {
+      console.error(`Error loading orders for ${client.name}:`, e);
+    }
+  }
+
+  updateStats();
+  renderClients();
+  renderOrders();
+
+  document.getElementById('last-updated').textContent =
+    'Last updated: ' + new Date().toLocaleTimeString();
+}
+
+function updateStats() {
+  const today = getToday();
+  const week = getThisWeek();
+
+  const ordersToday = allOrders.filter(o =>
+    o.Date_Time && o.Date_Time.toString().includes(today)).length;
+
+  const ordersWeek = allOrders.filter(o => {
+    if (!o.Date_Time) return false;
+    const d = o.Date_Time.toString().split(' ')[0];
+    return d >= week;
+  }).length;
+
+  const activeClients = CLIENTS.filter(c => c.status === 'active').length;
+  const monthlyRevenue = CLIENTS.filter(c => c.status === 'active')
+    .reduce((sum, c) => sum + c.monthlyFee, 0);
+
+  document.getElementById('total-clients').textContent = CLIENTS.length;
+  document.getElementById('active-clients').textContent = `${activeClients} active`;
+  document.getElementById('orders-today').textContent = ordersToday;
+  document.getElementById('orders-week').textContent = `${ordersWeek} this week`;
+  document.getElementById('total-orders').textContent = allOrders.length;
+  document.getElementById('monthly-revenue').textContent = `${monthlyRevenue} AED`;
+  document.getElementById('orders-badge').textContent = `${allOrders.length} total orders`;
+}
+
+function renderClients() {
+  const search = document.getElementById('client-search').value.toLowerCase();
+  const filtered = CLIENTS.filter(c =>
+    c.name.toLowerCase().includes(search) ||
+    c.type.toLowerCase().includes(search)
+  );
+
+  if (filtered.length === 0) {
+    document.getElementById('clients-table').innerHTML =
+      '<div class="empty">No clients found</div>';
+    return;
+  }
+
+  const clientOrders = {};
+  CLIENTS.forEach(c => {
+    clientOrders[c.id] = allOrders.filter(o => o.clientId === c.id).length;
+  });
+
+  let html = `<table>
+    <thead>
+      <tr>
+        <th>Client Name</th>
+        <th>Type</th>
+        <th>WhatsApp</th>
+        <th>Plan</th>
+        <th>Monthly Fee</th>
+        <th>Total Orders</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  filtered.forEach(client => {
+    const statusBadge = client.status === 'active'
+      ? '<span class="badge badge-green"><span class="dot dot-green"></span>Active</span>'
+      : '<span class="badge badge-red"><span class="dot dot-red"></span>Inactive</span>';
+
+    html += `<tr>
+      <td><div class="client-name">${client.name}</div>
+          <div style="font-size:11px;color:#999;margin-top:2px">Since ${client.joinDate}</div></td>
+      <td>${client.type}</td>
+      <td>+${client.whatsapp}</td>
+      <td><span class="badge badge-blue">${client.plan}</span></td>
+      <td><span class="revenue-positive">${client.monthlyFee} AED</span></td>
+      <td>${clientOrders[client.id] || 0}</td>
+      <td>${statusBadge}</td>
+      <td>
+        <a href="https://docs.google.com/spreadsheets/d/${client.sheetId}" target="_blank">
+          <button class="btn btn-blue">View Sheet</button>
+        </a>
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('clients-table').innerHTML = html;
+}
+
+function renderOrders() {
+  if (allOrders.length === 0) {
+    document.getElementById('orders-table').innerHTML =
+      '<div class="empty">No orders found</div>';
+    return;
+  }
+
+  const sorted = [...allOrders].reverse().slice(0, 50);
+
+  let html = `<table>
+    <thead>
+      <tr>
+        <th>Order ID</th>
+        <th>Client</th>
+        <th>Customer Phone</th>
+        <th>Items</th>
+        <th>Total</th>
+        <th>Address</th>
+        <th>Status</th>
+        <th>Date & Time</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  sorted.forEach(order => {
+    const status = order.Status || 'New';
+    let statusBadge = '';
+    if (status === 'New') statusBadge = '<span class="badge badge-amber">New</span>';
+    else if (status === 'Delivered') statusBadge = '<span class="badge badge-green">Delivered</span>';
+    else if (status === 'Cancelled') statusBadge = '<span class="badge badge-red">Cancelled</span>';
+    else statusBadge = `<span class="badge badge-blue">${status}</span>`;
+
+    const total = order.Total_AED || order.Total || '0';
+    const totalDisplay = total === '0' || total === 0 ? 'FREE' : `${total} AED`;
+
+    html += `<tr>
+      <td><strong>${order.Order_ID || '-'}</strong></td>
+      <td style="font-size:12px">${order.clientName || '-'}</td>
+      <td>${order.Customer_Phone || '-'}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${order.Items || ''}">${order.Items || '-'}</td>
+      <td><span class="revenue-positive">${totalDisplay}</span></td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${order.Address || ''}">${order.Address || '-'}</td>
+      <td>${statusBadge}</td>
+      <td style="font-size:12px">${order.Date_Time || '-'}</td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('orders-table').innerHTML = html;
+}
+
+function filterClients() {
+  renderClients();
+}
+
+// Auto refresh every 2 minutes
+setInterval(loadDashboard, 120000);
+
+// Load on start
+loadDashboard();
+</script>
+</body>
+</html>

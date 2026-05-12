@@ -349,6 +349,16 @@ def get_ai_reply(sender, message):
     })
     return reply
 
+@app.route("/escalate", methods=["POST"])
+def escalate():
+    data = request.get_json()
+    to = data.get("to")
+    message = data.get("message")
+    if to and message:
+        send_whatsapp_message(to, message)
+        print(f"Escalation sent to {to}")
+    return "OK", 200
+    
 @app.route("/webhook", methods=["GET"])
 def verify():
     mode = request.args.get("hub.mode")
