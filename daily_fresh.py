@@ -349,6 +349,42 @@ def get_ai_reply(sender, message):
     })
     return reply
 
+@app.route("/update-order", methods=["POST"])
+def update_order():
+    try:
+        data = request.get_json()
+        order_id = data.get("order_id")
+        new_status = data.get("status")
+        sheet_id = data.get("sheet_id")
+
+        if not order_id or not new_status or not sheet_id:
+            return {"error": "Missing data"}, 400
+
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_file(
+            "credentials.json", scopes=scope)
+        gc = gspread.authorize(creds)
+        sh = gc.open_by_key(sheet_id)
+        worksheet = sh.worksheet("Orders")
+        records = worksheet.get_all_records()
+
+        for i, row in enumerate(records):
+            if str(row.get("Order_ID", "")) == str(order_id):
+                row_num = i + 2
+                worksheet.update(f"F{row_num}", new_status)
+                print(f"Order {order_id} updated to {new_status}")
+                return {"success": True, "order_id": order_id,
+                        "status": new_status}, 200
+
+        return {"error": "Order not found"}, 404
+
+    except Exception as e:
+        print(f"Update order error: {e}")
+        return {"error": str(e)}, 500
+        
 @app.route("/escalate", methods=["POST"])
 def escalate():
     data = request.get_json()

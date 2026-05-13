@@ -9,10 +9,11 @@
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e}
 .header{background:#1a1a2e;color:white;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100}
 .header h1{font-size:16px;font-weight:600}
-.header-right{display:flex;align-items:center;gap:10px}
+.header-right{display:flex;align-items:center;gap:8px}
 .notif-btn{background:rgba(255,255,255,0.1);border:none;color:white;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px}
 .notif-badge{background:#ef4444;color:white;border-radius:999px;padding:2px 6px;font-size:11px;font-weight:600}
 .last-update{font-size:11px;opacity:0.6}
+.logout-btn{background:rgba(255,255,255,0.1);border:none;color:white;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px}
 .container{max-width:900px;margin:0 auto;padding:16px}
 .stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
 @media(min-width:600px){.stats-grid{grid-template-columns:repeat(4,1fr)}}
@@ -50,7 +51,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .search-bar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .search-bar input{flex:1;min-width:200px;padding:9px 12px;border:1px solid #e0e0e0;border-radius:8px;font-size:13px;outline:none}
 .search-bar input:focus{border-color:#3b82f6}
-.search-bar button{padding:9px 16px;background:#1a1a2e;color:white;border:none;border-radius:8px;cursor:pointer;font-size:13px;white-space:nowrap}
 .empty{text-align:center;padding:30px;color:#999;font-size:13px}
 .client-card{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}
 .client-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px}
@@ -71,7 +71,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
 .dot-green{background:#22c55e}
 .dot-red{background:#ef4444}
-.dot-amber{background:#f59e0b}
+.filter-bar{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;flex-wrap:wrap}
+.filter-btn{padding:6px 14px;border-radius:8px;border:1px solid #e0e0e0;background:white;font-size:12px;cursor:pointer;white-space:nowrap;font-weight:500}
+.filter-btn.active{background:#3b82f6;color:white;border-color:#3b82f6}
 </style>
 </head>
 <body>
@@ -83,6 +85,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       🔔 <span id="notif-count" class="notif-badge" style="display:none">0</span>
     </button>
     <div class="last-update" id="last-update">Loading...</div>
+    <button onclick="logout()" class="logout-btn">Logout</button>
   </div>
 </div>
 
@@ -97,7 +100,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="container">
 
   <div id="escalation-banner" class="escalation-alert">
-    <div class="escalation-title">⚠️ Escalation Alert — Action Required!</div>
+    <div class="escalation-title">ESCALATION ALERT — Action Required!</div>
     <div id="escalation-list"></div>
   </div>
 
@@ -124,10 +127,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
   </div>
 
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="filterByClient('all',this)">All Clients</button>
+    <button class="filter-btn" onclick="filterByClient('dailyfresh',this)">Daily Fresh</button>
+    <button class="filter-btn" onclick="filterByClient('freshmart',this)">Fresh Mart</button>
+  </div>
+
   <div class="tab-bar">
-    <button class="tab active" onclick="showTab('pending-tab')">🔴 Pending Orders</button>
-    <button class="tab" onclick="showTab('all-tab')">📋 All Orders</button>
-    <button class="tab" onclick="showTab('clients-tab')">🏪 Clients</button>
+    <button class="tab active" onclick="showTab('pending-tab',this)">🔴 Pending Orders</button>
+    <button class="tab" onclick="showTab('all-tab',this)">📋 All Orders</button>
+    <button class="tab" onclick="showTab('clients-tab',this)">🏪 Clients</button>
   </div>
 
   <div id="pending-tab" class="panel active">
@@ -147,7 +156,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <span class="badge badge-blue" id="all-orders-count">0 orders</span>
       </div>
       <div class="search-bar">
-        <input id="order-search" placeholder="Search by Order ID or phone..." oninput="filterOrders()">
+        <input id="order-search" placeholder="Search by Order ID or phone..." oninput="renderAllOrders()">
       </div>
       <div id="all-orders-list"><div class="empty">Loading...</div></div>
     </div>
@@ -166,6 +175,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <script>
+if(sessionStorage.getItem('aishop_role')!=='admin'){
+  window.location.href='login.html';
+}
+
+function logout(){
+  sessionStorage.clear();
+  window.location.href='login.html';
+}
+
 const CLIENTS=[
   {id:"dailyfresh",name:"Daily Fresh Vegetables & Fruits L.L.C",type:"Vegetables & Fruits",
    whatsapp:"971502812485",sheetId:"1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s",
@@ -184,7 +202,7 @@ let allOrders=[];
 let notifications=[];
 let knownOrderIds=new Set();
 let orderTimers={};
-let notifShown=false;
+let activeClient='all';
 
 async function fetchSheet(sheetId,tab){
   try{
@@ -218,7 +236,22 @@ async function loadDashboard(){
   renderPendingOrders();
   renderAllOrders();
   renderClients();
-  document.getElementById('last-update').textContent='Updated: '+new Date().toLocaleTimeString();
+  document.getElementById('last-update').textContent=
+    'Updated: '+new Date().toLocaleTimeString();
+}
+
+function getFilteredOrders(){
+  if(activeClient==='all')return allOrders;
+  return allOrders.filter(o=>o.clientId===activeClient);
+}
+
+function filterByClient(clientId,btn){
+  activeClient=clientId;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  updateStats();
+  renderPendingOrders();
+  renderAllOrders();
 }
 
 function checkNewOrders(){
@@ -228,7 +261,9 @@ function checkNewOrders(){
       if(knownOrderIds.size>0){
         addNotification(`New order ${id} from ${o.Customer_Phone||'customer'} — ${o.clientName}`);
         if(Notification.permission==='granted'){
-          new Notification('New Order!',{body:`Order ${id} — ${o.Items||''}`,icon:'https://img.icons8.com/color/48/shopping-cart.png'});
+          new Notification('New Order!',{
+            body:`Order ${id} — ${o.Items||''}`,
+          });
         }
       }
       knownOrderIds.add(id);
@@ -246,7 +281,7 @@ function startEscalationTimer(order){
   orderTimers[id]=setTimeout(()=>{
     const current=allOrders.find(o=>o.Order_ID===id);
     if(current&&(current.Status||'New')==='New'){
-      addNotification(`⚠️ ESCALATION: Order ${id} pending for ${ESCALATION_MINUTES} mins!`);
+      addNotification(`ESCALATION: Order ${id} pending for ${ESCALATION_MINUTES} mins!`);
       sendEscalationAlert(order);
       renderPendingOrders();
     }
@@ -254,32 +289,31 @@ function startEscalationTimer(order){
 }
 
 function sendEscalationAlert(order){
-  const msg=`ESCALATION ALERT!\nOrder ${order.Order_ID} has been pending for ${ESCALATION_MINUTES} minutes!\nClient: ${order.clientName}\nItems: ${order.Items||'N/A'}\nAddress: ${order.Address||'N/A'}\nPlease take action immediately!`;
+  const msg=`ESCALATION ALERT!\nOrder ${order.Order_ID} pending for ${ESCALATION_MINUTES} minutes!\nClient: ${order.clientName}\nItems: ${order.Items||'N/A'}\nAddress: ${order.Address||'N/A'}\nPlease take action immediately!`;
   fetch(`${RAILWAY_URL}/escalate`,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({to:order.managerNumber,message:msg})
-  }).catch(e=>console.log('Escalation API call:',e));
+  }).catch(e=>console.log('Escalation:',e));
 }
 
 function checkEscalations(){
   const now=new Date();
-  const escalated=allOrders.filter(o=>{
+  const filtered=getFilteredOrders();
+  const escalated=filtered.filter(o=>{
     if((o.Status||'New')!=='New')return false;
     if(!o.Date_Time)return false;
     try{
-      const orderTime=new Date(o.Date_Time);
-      const diffMins=(now-orderTime)/(1000*60);
+      const diffMins=(now-new Date(o.Date_Time))/(1000*60);
       return diffMins>ESCALATION_MINUTES;
     }catch(e){return false;}
   });
-
   const banner=document.getElementById('escalation-banner');
   const list=document.getElementById('escalation-list');
   if(escalated.length>0){
     banner.style.display='block';
     list.innerHTML=escalated.map(o=>
-      `<div class="escalation-item">⚡ Order ${o.Order_ID} — ${o.clientName} — ${o.Items||''}</div>`
+      `<div class="escalation-item">Order ${o.Order_ID} — ${o.clientName} — ${o.Items||''}</div>`
     ).join('');
   }else{
     banner.style.display='none';
@@ -289,28 +323,31 @@ function checkEscalations(){
 function getOrderAge(dateStr){
   if(!dateStr)return 0;
   try{
-    const orderTime=new Date(dateStr);
-    const diffMins=(new Date()-orderTime)/(1000*60);
-    return Math.round(diffMins);
+    return Math.round((new Date()-new Date(dateStr))/(1000*60));
   }catch(e){return 0;}
 }
 
 function updateStats(){
+  const filtered=getFilteredOrders();
   const today=new Date().toISOString().split('T')[0];
-  const pending=allOrders.filter(o=>(o.Status||'New')==='New').length;
-  const todayOrders=allOrders.filter(o=>o.Date_Time&&o.Date_Time.toString().includes(today)).length;
-  const delivered=allOrders.filter(o=>o.Status==='Delivered').length;
+  const pending=filtered.filter(o=>(o.Status||'New')==='New').length;
+  const todayOrders=filtered.filter(o=>
+    o.Date_Time&&o.Date_Time.toString().includes(today)).length;
+  const delivered=filtered.filter(o=>o.Status==='Delivered').length;
+  const revenue=CLIENTS.filter(c=>c.status==='active')
+    .reduce((s,c)=>s+c.monthlyFee,0);
   document.getElementById('stat-pending').textContent=pending;
   document.getElementById('stat-today').textContent=todayOrders;
   document.getElementById('stat-delivered').textContent=delivered;
+  document.getElementById('stat-revenue').textContent=revenue;
 }
 
 function renderPendingOrders(){
-  const pending=allOrders.filter(o=>(o.Status||'New')==='New');
+  const filtered=getFilteredOrders();
+  const pending=filtered.filter(o=>(o.Status||'New')==='New');
   const el=document.getElementById('pending-orders-list');
   if(pending.length===0){
-    el.innerHTML='<div class="empty">No pending orders! All clear ✅</div>';
-    return;
+    el.innerHTML='<div class="empty">No pending orders! All clear</div>';return;
   }
   el.innerHTML=pending.slice().reverse().map(o=>{
     const age=getOrderAge(o.Date_Time);
@@ -323,18 +360,22 @@ function renderPendingOrders(){
           <div class="order-id">📦 ${o.Order_ID||'-'}</div>
           <div class="order-time">${o.Date_Time||''} • ${o.clientName||''}</div>
         </div>
-        <span class="badge badge-${isEscalated?'red':'amber'}">${isEscalated?'⚠️ Escalated':'🕐 Pending'}</span>
+        <span class="badge badge-${isEscalated?'red':'amber'}">
+          ${isEscalated?'Escalated':'Pending'}
+        </span>
       </div>
       <div class="order-items">${o.Items||'-'}</div>
       <div class="order-address">📍 ${o.Address||'-'}</div>
       <div class="order-footer">
         <div>
           <div class="total-display">${totalDisp}</div>
-          ${age>0?`<div class="timer">⏱ ${age} min ago${isEscalated?' — ESCALATED':''}</div>`:''}
+          ${age>0?`<div class="timer">${age} min ago${isEscalated?' — ESCALATED':''}</div>`:''}
         </div>
         <div class="action-btns">
-          <button class="btn btn-green" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Delivered')">✓ Delivered</button>
-          <button class="btn btn-red" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Cancelled')">✗ Cancel</button>
+          <button class="btn btn-green"
+            onclick="updateStatus('${o.Order_ID}','Delivered')">Delivered</button>
+          <button class="btn btn-red"
+            onclick="updateStatus('${o.Order_ID}','Cancelled')">Cancel</button>
         </div>
       </div>
     </div>`;
@@ -342,8 +383,8 @@ function renderPendingOrders(){
 }
 
 function renderAllOrders(){
-  const search=document.getElementById('order-search').value.toLowerCase();
-  const filtered=allOrders.filter(o=>
+  const search=(document.getElementById('order-search').value||'').toLowerCase();
+  const filtered=getFilteredOrders().filter(o=>
     !search||
     (o.Order_ID||'').toLowerCase().includes(search)||
     (o.Customer_Phone||'').includes(search)
@@ -353,10 +394,12 @@ function renderAllOrders(){
   if(filtered.length===0){el.innerHTML='<div class="empty">No orders found</div>';return;}
   el.innerHTML=filtered.slice().reverse().slice(0,50).map(o=>{
     const status=o.Status||'New';
-    const badgeClass=status==='New'?'amber':status==='Delivered'?'green':status==='Cancelled'?'red':'blue';
+    const badgeClass=status==='New'?'amber':
+      status==='Delivered'?'green':
+      status==='Cancelled'?'red':'blue';
     const total=parseFloat(o.Total_AED||o.Total||0);
     const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
-    return `<div class="order-card">
+    return `<div class="order-card ${status==='New'?'pending':''}">
       <div class="order-header">
         <div>
           <div class="order-id">${o.Order_ID||'-'}</div>
@@ -369,8 +412,10 @@ function renderAllOrders(){
       <div class="order-footer">
         <div class="total-display">${totalDisp}</div>
         ${status==='New'?`<div class="action-btns">
-          <button class="btn btn-green" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Delivered')">✓ Delivered</button>
-          <button class="btn btn-red" onclick="updateStatus('${o.Order_ID}','${o.clientName}','Cancelled')">✗ Cancel</button>
+          <button class="btn btn-green"
+            onclick="updateStatus('${o.Order_ID}','Delivered')">Delivered</button>
+          <button class="btn btn-red"
+            onclick="updateStatus('${o.Order_ID}','Cancelled')">Cancel</button>
         </div>`:''}
       </div>
     </div>`;
@@ -388,7 +433,8 @@ function renderClients(){
       <div class="client-header">
         <div class="client-name">${c.name}</div>
         <span class="badge badge-${c.status==='active'?'green':'red'}">
-          <span class="dot dot-${c.status==='active'?'green':'red'}"></span>${c.status}
+          <span class="dot dot-${c.status==='active'?'green':'red'}"></span>
+          ${c.status}
         </span>
       </div>
       <div class="client-info">
@@ -400,19 +446,27 @@ function renderClients(){
         <div>🏪 ${c.type}</div>
       </div>
       <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-        <a href="https://docs.google.com/spreadsheets/d/${c.sheetId}" target="_blank">
+        <a href="https://docs.google.com/spreadsheets/d/${c.sheetId}"
+           target="_blank">
           <button class="btn btn-blue">📊 View Sheet</button>
         </a>
+        <button class="btn btn-gray"
+          onclick="filterByClient('${c.id}',document.querySelector('.filter-btn'))">
+          View Orders
+        </button>
       </div>
     </div>`;
   }).join('');
 }
 
-function updateStatus(orderId,clientName,newStatus){
+function updateStatus(orderId,newStatus){
   const order=allOrders.find(o=>o.Order_ID===orderId);
   if(order){
     order.Status=newStatus;
-    if(orderTimers[orderId]){clearTimeout(orderTimers[orderId]);delete orderTimers[orderId];}
+    if(orderTimers[orderId]){
+      clearTimeout(orderTimers[orderId]);
+      delete orderTimers[orderId];
+    }
     addNotification(`Order ${orderId} marked as ${newStatus}`);
     renderPendingOrders();
     renderAllOrders();
@@ -431,7 +485,9 @@ function addNotification(msg){
 
 function renderNotifications(){
   const el=document.getElementById('notif-list');
-  if(notifications.length===0){el.innerHTML='<div class="empty">No notifications</div>';return;}
+  if(notifications.length===0){
+    el.innerHTML='<div class="empty">No notifications</div>';return;
+  }
   el.innerHTML=notifications.map(n=>`
     <div class="notif-item">
       <div>${n.msg}</div>
@@ -453,22 +509,17 @@ function clearNotifications(){
   renderNotifications();
 }
 
-function filterOrders(){renderAllOrders();}
-
-function showTab(id){
+function showTab(id,btn){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  event.target.classList.add('active');
+  btn.classList.add('active');
 }
 
-function requestNotificationPermission(){
-  if('Notification' in window&&Notification.permission==='default'){
-    Notification.requestPermission();
-  }
+if('Notification' in window&&Notification.permission==='default'){
+  Notification.requestPermission();
 }
 
-requestNotificationPermission();
 loadDashboard();
 setInterval(loadDashboard,30000);
 </script>
