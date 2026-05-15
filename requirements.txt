@@ -5,3 +5,4 @@ gspread
 google-auth
 python-dotenv
 gunicorn
+flask-cors
