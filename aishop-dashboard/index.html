@@ -315,49 +315,60 @@ async function runDiagnostics(){
 
 
 
-
-async function fetchSheet(sheetId,tab){
+async function fetchSheet(sheetId, tab){
   try{
-    const url=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tab)}`;
+    // Method 1: Try with headers=1 parameter
+    const url=`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tab)}&headers=1`;
     const res=await fetch(url);
     const text=await res.text();
     const json=JSON.parse(text.substring(47).slice(0,-2));
 
     const rows=json.table.rows;
-    if(!rows||rows.length===0)return[];
+    if(!rows||rows.length===0){
+      log(`No rows in ${tab}`);
+      return[];
+    }
 
-    // Check if headers are in first row or in cols
-    let cols=json.table.cols.map(c=>c.label);
+    let cols=json.table.cols.map(c=>c.label?c.label.trim():'');
     const hasEmptyLabels=cols.every(c=>!c||c==='');
+
+    log(`Sheet ${tab} cols`,cols);
+    log(`Has empty labels`,hasEmptyLabels);
 
     if(hasEmptyLabels){
       // Headers are in first data row
-      log('Headers in first row — extracting...');
+      log('Extracting headers from first row...');
       const headerRow=rows[0];
-      cols=headerRow.c.map(cell=>cell?cell.v:'');
+      cols=headerRow.c.map(cell=>cell?String(cell.v).trim():'');
       log('Extracted cols',cols);
-      // Return data rows skipping header row
+
       return rows.slice(1).map(row=>{
         const obj={};
         row.c.forEach((cell,i)=>{
-          obj[cols[i]]=cell?cell.v:'';
+          if(cols[i]){
+            obj[cols[i]]=cell?String(cell.v).trim():'';
+          }
         });
         return obj;
       });
     }
 
-    log(`fetchSheet ${tab} cols`,cols);
+    // Normal case - headers in cols
     return rows.map(row=>{
       const obj={};
-      row.c.forEach((cell,i)=>{obj[cols[i]]=cell?cell.v:'';});
+      row.c.forEach((cell,i)=>{
+        if(cols[i]){
+          obj[cols[i]]=cell?String(cell.v).trim():'';
+        }
+      });
       return obj;
     });
+
   }catch(e){
     log('fetchSheet error',e.message);
     return[];
   }
 }
-
 
 
 
@@ -517,6 +528,7 @@ function updateStats(){
   document.getElementById('stat-revenue').textContent=revenue;
 }
 
+
 function renderPendingOrders(){
   orderMap={};
   const filtered=getFilteredOrders();
@@ -524,45 +536,53 @@ function renderPendingOrders(){
   const el=document.getElementById('pending-orders-list');
 
   log('renderPendingOrders count',pending.length);
-  pending.forEach((o,i)=>{
-    log(`Pending[${i}] Order_ID`,o.Order_ID);
-    log(`Pending[${i}] sheetId`,o.sheetId);
-  });
 
   if(pending.length===0){
     el.innerHTML='<div class="empty">No pending orders! All clear</div>';
     return;
   }
+
   el.innerHTML=pending.slice().reverse().map((o,idx)=>{
-    const age=getOrderAge(o.Date_Time);
-    const isEscalated=age>ESCALATION_MINUTES;
-    const total=parseFloat(o.Total_AED||o.Total||0);
-    const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
-    const mapKey='p_'+idx;
+    // Find order ID from any possible key name
     const allKeys=Object.keys(o);
-	log('Order keys at render time',allKeys);
-	const idKey=allKeys.find(k=>
-	  k.replace(/[\s_]/g,'').toLowerCase()==='orderid'
-	)||allKeys[0];
-	log('Detected idKey',idKey);
-	log('ID value',o[idKey]);
-	orderMap[mapKey]={
-	  orderId:o[idKey],
-	  sheetId:o.sheetId
-	};
-    log(`orderMap[${mapKey}]`,orderMap[mapKey]);
+    const idKey=allKeys.find(k=>k.replace(/[\s_]/g,'').toLowerCase()==='orderid')||allKeys[0];
+    const orderId=o[idKey]||o['Order_ID']||o['order_id']||'';
+
+    // Find other fields
+    const phone=o['Customer_Phone']||o['customer_phone']||'';
+    const items=o['Items']||o['items']||'-';
+    const address=o['Address']||o['address']||o['Address ']||'-';
+    const dateTime=o['Date_Time']||o['date_time']||'';
+    const rawTotal=o['Total_AED']||o['total_aed']||o['Total']||'0';
+    const total=parseFloat(rawTotal);
+    const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+
+    const age=getOrderAge(dateTime);
+    const isEscalated=age>ESCALATION_MINUTES;
+
+    // Store in map
+    const mapKey='p_'+idx;
+    orderMap[mapKey]={
+      orderId:orderId,
+      sheetId:o.sheetId||''
+    };
+
+    log(`Pending[${idx}] orderId`,orderId);
+    log(`Pending[${idx}] items`,items);
+    log(`Pending[${idx}] sheetId`,o.sheetId);
+
     return `<div class="order-card pending ${isEscalated?'escalated':''}">
       <div class="order-header">
         <div>
-          <div class="order-id">📦 ${o.Order_ID||'-'}</div>
-          <div class="order-time">${o.Date_Time||''} • ${o.clientName||''}</div>
+          <div class="order-id">📦 ${orderId||'-'}</div>
+          <div class="order-time">${dateTime} • ${o.clientName||''}</div>
         </div>
         <span class="badge badge-${isEscalated?'red':'amber'}">
           ${isEscalated?'Escalated':'Pending'}
         </span>
       </div>
-      <div class="order-items">${o.Items||'-'}</div>
-      <div class="order-address">📍 ${o.Address||'-'}</div>
+      <div class="order-items">${items}</div>
+      <div class="order-address">📍 ${address}</div>
       <div class="order-footer">
         <div>
           <div style="font-weight:600">${totalDisp}</div>
@@ -579,43 +599,58 @@ function renderPendingOrders(){
   }).join('');
 }
 
+
+
 function renderAllOrders(){
   const search=(document.getElementById('order-search').value||'').toLowerCase();
   const filtered=getFilteredOrders().filter(o=>
     !search||
-    (o.Order_ID||'').toLowerCase().includes(search)||
-    (o.Customer_Phone||'').includes(search)
+    String(o.Order_ID||'').toLowerCase().includes(search)||
+    String(o.Customer_Phone||'').includes(search)
   );
   document.getElementById('all-orders-count').textContent=`${filtered.length} orders`;
   const el=document.getElementById('all-orders-list');
   if(filtered.length===0){
     el.innerHTML='<div class="empty">No orders found</div>';return;
   }
+
   el.innerHTML=filtered.slice().reverse().slice(0,50).map((o,idx)=>{
-    const status=o.Status||'New';
-    const badgeClass=status==='New'?'amber':
-      status==='Delivered'?'green':
-      status==='Cancelled'?'red':'blue';
-    const total=parseFloat(o.Total_AED||o.Total||0);
+    const allKeys=Object.keys(o);
+    const idKey=allKeys.find(k=>k.replace(/[\s_]/g,'').toLowerCase()==='orderid')||allKeys[0];
+    const orderId=o[idKey]||o['Order_ID']||'';
+
+    const items=o['Items']||o['items']||'-';
+    const address=o['Address']||o['Address ']||'-';
+    const phone=o['Customer_Phone']||'-';
+    const dateTime=o['Date_Time']||'';
+    const rawTotal=o['Total_AED']||o['Total']||'0';
+    const total=parseFloat(rawTotal);
     const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+    const status=o['Status']||o['Status ']||'New';
+
+    const badgeClass=status.trim()==='New'?'amber':
+      status.trim()==='Delivered'?'green':
+      status.trim()==='Cancelled'?'red':'blue';
+
     const mapKey='a_'+idx;
     orderMap[mapKey]={
-      orderId:o.Order_ID,
-      sheetId:o.sheetId
+      orderId:orderId,
+      sheetId:o.sheetId||''
     };
-    return `<div class="order-card ${status==='New'?'pending':''}">
+
+    return `<div class="order-card ${status.trim()==='New'?'pending':''}">
       <div class="order-header">
         <div>
-          <div class="order-id">${o.Order_ID||'-'}</div>
-          <div class="order-time">${o.Customer_Phone||''} • ${o.clientName||''}</div>
+          <div class="order-id">${orderId||'-'}</div>
+          <div class="order-time">${phone} • ${o.clientName||''}</div>
         </div>
-        <span class="badge badge-${badgeClass}">${status}</span>
+        <span class="badge badge-${badgeClass}">${status.trim()}</span>
       </div>
-      <div class="order-items">${o.Items||'-'}</div>
-      <div class="order-address">📍 ${o.Address||'-'} • ${o.Date_Time||''}</div>
+      <div class="order-items">${items}</div>
+      <div class="order-address">📍 ${address} • ${dateTime}</div>
       <div class="order-footer">
         <div style="font-weight:600">${totalDisp}</div>
-        ${status==='New'?`<div style="display:flex;gap:6px">
+        ${status.trim()==='New'?`<div style="display:flex;gap:6px">
           <button class="btn btn-green"
             onclick="updateStatus('${mapKey}','Delivered')">Delivered</button>
           <button class="btn btn-red"
@@ -625,6 +660,11 @@ function renderAllOrders(){
     </div>`;
   }).join('');
 }
+
+
+
+
+
 
 function renderClients(){
   const el=document.getElementById('clients-list');
