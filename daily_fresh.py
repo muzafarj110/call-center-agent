@@ -1,4 +1,5 @@
 from flask import Flask, request
+from flask_cors import CORS
 import anthropic
 import requests
 import gspread
@@ -11,7 +12,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__) 
+CORS(app)
+
 
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID")

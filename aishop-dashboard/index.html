@@ -9,40 +9,37 @@
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e}
 .header{background:#1a1a2e;color:white;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100}
 .header h1{font-size:16px;font-weight:600}
-.header-right{display:flex;align-items:center;gap:8px}
-.notif-btn{background:rgba(255,255,255,0.1);border:none;color:white;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:6px}
+.header-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.notif-btn{background:rgba(255,255,255,0.1);border:none;color:white;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13px}
 .notif-badge{background:#ef4444;color:white;border-radius:999px;padding:2px 6px;font-size:11px;font-weight:600}
-.last-update{font-size:11px;opacity:0.6}
 .logout-btn{background:rgba(255,255,255,0.1);border:none;color:white;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px}
+.last-update{font-size:11px;opacity:0.6}
 .container{max-width:900px;margin:0 auto;padding:16px}
 .stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
 @media(min-width:600px){.stats-grid{grid-template-columns:repeat(4,1fr)}}
 .stat-card{background:white;border-radius:12px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
-.stat-label{font-size:11px;color:#666;margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.stat-label{font-size:11px;color:#666;margin-bottom:6px}
 .stat-value{font-size:24px;font-weight:600;color:#1a1a2e}
 .stat-sub{font-size:11px;color:#22c55e;margin-top:3px}
 .section{background:white;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,0.08)}
 .section-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px}
-.section-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px}
+.section-title{font-size:15px;font-weight:600}
 .badge{padding:3px 9px;border-radius:999px;font-size:11px;font-weight:500}
 .badge-green{background:#dcfce7;color:#166534}
 .badge-red{background:#fee2e2;color:#991b1b}
 .badge-blue{background:#dbeafe;color:#1e40af}
 .badge-amber{background:#fef3c7;color:#92400e}
-.badge-gray{background:#f3f4f6;color:#374151}
-.order-card{border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px;transition:all .2s}
+.order-card{border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}
 .order-card.pending{border-color:#ef4444;background:#fff8f8}
 .order-card.escalated{border-color:#dc2626;background:#fef2f2;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.8}}
 .order-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
-.order-id{font-weight:600;font-size:14px;color:#1a1a2e}
+.order-id{font-weight:600;font-size:14px}
 .order-time{font-size:11px;color:#999}
 .order-items{font-size:13px;color:#374151;margin-bottom:6px}
-.order-address{font-size:12px;color:#666;display:flex;align-items:flex-start;gap:4px}
+.order-address{font-size:12px;color:#666}
 .order-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0;flex-wrap:wrap;gap:6px}
-.total-display{font-weight:600;font-size:14px;color:#1a1a2e}
 .timer{font-size:11px;color:#ef4444;font-weight:500;background:#fee2e2;padding:2px 8px;border-radius:999px}
-.action-btns{display:flex;gap:6px;flex-wrap:wrap}
 .btn{padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;border:none;font-weight:500}
 .btn-green{background:#22c55e;color:white}
 .btn-red{background:#ef4444;color:white}
@@ -50,13 +47,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-gray{background:#f0f0f0;color:#666}
 .search-bar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .search-bar input{flex:1;min-width:200px;padding:9px 12px;border:1px solid #e0e0e0;border-radius:8px;font-size:13px;outline:none}
-.search-bar input:focus{border-color:#3b82f6}
 .empty{text-align:center;padding:30px;color:#999;font-size:13px}
 .client-card{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}
 .client-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px}
 .client-name{font-weight:600;font-size:14px}
 .client-info{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:#666}
-.notification-panel{position:fixed;top:60px;right:10px;width:300px;background:white;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:200;padding:16px;display:none;max-height:400px;overflow-y:auto}
+.notification-panel{position:fixed;top:60px;right:10px;width:280px;background:white;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:200;padding:16px;display:none;max-height:400px;overflow-y:auto}
 .notif-item{padding:10px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
 .notif-item:last-child{border:none}
 .notif-time{font-size:11px;color:#999;margin-top:3px}
@@ -67,13 +63,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tab{padding:8px 16px;border-radius:8px;border:1px solid #e0e0e0;background:white;font-size:13px;cursor:pointer;white-space:nowrap;font-weight:500}
 .tab.active{background:#1a1a2e;color:white;border-color:#1a1a2e}
 .panel{display:none}.panel.active{display:block}
-.revenue-green{color:#22c55e;font-weight:600}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
-.dot-green{background:#22c55e}
-.dot-red{background:#ef4444}
 .filter-bar{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:4px;flex-wrap:wrap}
 .filter-btn{padding:6px 14px;border-radius:8px;border:1px solid #e0e0e0;background:white;font-size:12px;cursor:pointer;white-space:nowrap;font-weight:500}
 .filter-btn.active{background:#3b82f6;color:white;border-color:#3b82f6}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+.dot-green{background:#22c55e}
+.dot-red{background:#ef4444}
+.revenue-green{color:#22c55e;font-weight:600}
+.diag-panel{background:#1a1a2e;color:#22c55e;font-family:monospace;font-size:11px;padding:12px;border-radius:8px;margin-bottom:14px;max-height:200px;overflow-y:auto;display:none}
 </style>
 </head>
 <body>
@@ -84,6 +81,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="notif-btn" onclick="toggleNotifications()">
       🔔 <span id="notif-count" class="notif-badge" style="display:none">0</span>
     </button>
+    <button onclick="toggleDiag()" class="notif-btn">🔧 Diag</button>
     <div class="last-update" id="last-update">Loading...</div>
     <button onclick="logout()" class="logout-btn">Logout</button>
   </div>
@@ -92,12 +90,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div class="notification-panel" id="notif-panel">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
     <strong style="font-size:14px">Notifications</strong>
-    <button onclick="clearNotifications()" style="font-size:11px;color:#666;background:none;border:none;cursor:pointer">Clear all</button>
+    <button onclick="clearNotifications()"
+      style="font-size:11px;color:#666;background:none;border:none;cursor:pointer">
+      Clear all
+    </button>
   </div>
   <div id="notif-list"><div class="empty">No notifications</div></div>
 </div>
 
 <div class="container">
+
+  <div id="diag-panel" class="diag-panel">
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+      <strong>Diagnostics</strong>
+      <button onclick="runDiagnostics()"
+        style="background:#22c55e;color:#1a1a2e;border:none;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px">
+        Run Again
+      </button>
+    </div>
+    <div id="diag-output">Running diagnostics...</div>
+  </div>
 
   <div id="escalation-banner" class="escalation-alert">
     <div class="escalation-title">ESCALATION ALERT — Action Required!</div>
@@ -128,13 +140,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 
   <div class="filter-bar">
-    <button class="filter-btn active" onclick="filterByClient('all',this)">All Clients</button>
-    <button class="filter-btn" onclick="filterByClient('dailyfresh',this)">Daily Fresh</button>
-    <button class="filter-btn" onclick="filterByClient('freshmart',this)">Fresh Mart</button>
+    <button class="filter-btn active" onclick="filterByClient('all',this)">
+      All Clients
+    </button>
+    <button class="filter-btn" onclick="filterByClient('dailyfresh',this)">
+      Daily Fresh
+    </button>
+    <button class="filter-btn" onclick="filterByClient('freshmart',this)">
+      Fresh Mart
+    </button>
   </div>
 
   <div class="tab-bar">
-    <button class="tab active" onclick="showTab('pending-tab',this)">🔴 Pending Orders</button>
+    <button class="tab active" onclick="showTab('pending-tab',this)">
+      🔴 Pending Orders
+    </button>
     <button class="tab" onclick="showTab('all-tab',this)">📋 All Orders</button>
     <button class="tab" onclick="showTab('clients-tab',this)">🏪 Clients</button>
   </div>
@@ -156,7 +176,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <span class="badge badge-blue" id="all-orders-count">0 orders</span>
       </div>
       <div class="search-bar">
-        <input id="order-search" placeholder="Search by Order ID or phone..." oninput="renderAllOrders()">
+        <input id="order-search" placeholder="Search by Order ID or phone..."
+               oninput="renderAllOrders()">
       </div>
       <div id="all-orders-list"><div class="empty">Loading...</div></div>
     </div>
@@ -184,25 +205,116 @@ function logout(){
   window.location.href='login.html';
 }
 
+const RAILWAY_URL='https://call-center-agent-production.up.railway.app';
+
 const CLIENTS=[
-  {id:"dailyfresh",name:"Daily Fresh Vegetables & Fruits L.L.C",type:"Vegetables & Fruits",
-   whatsapp:"971502812485",sheetId:"1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s",
-   status:"active",plan:"Starter",monthlyFee:299,joinDate:"2026-05-09",
-   managerNumber:"971565893710"},
-  {id:"freshmart",name:"Fresh Mart Supermarket",type:"Supermarket",
-   whatsapp:"971544007555",sheetId:"1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM",
-   status:"active",plan:"Starter",monthlyFee:299,joinDate:"2026-05-01",
-   managerNumber:"971565893710"}
+  {
+    id:'dailyfresh',
+    name:'Daily Fresh Vegetables & Fruits L.L.C',
+    type:'Vegetables & Fruits',
+    whatsapp:'971502812485',
+    sheetId:'1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s',
+    status:'active',
+    plan:'Starter',
+    monthlyFee:299,
+    joinDate:'2026-05-09',
+    managerNumber:'971565893710'
+  },
+  {
+    id:'freshmart',
+    name:'Fresh Mart Supermarket',
+    type:'Supermarket',
+    whatsapp:'971544007555',
+    sheetId:'1yz4dvLvqjldeAER4FijQgPZzLshNO9VQc1EVSJZYqdM',
+    status:'active',
+    plan:'Starter',
+    monthlyFee:299,
+    joinDate:'2026-05-01',
+    managerNumber:'971565893710'
+  }
 ];
 
 const ESCALATION_MINUTES=5;
-const RAILWAY_URL="https://call-center-agent-production.up.railway.app";
-
 let allOrders=[];
 let notifications=[];
 let knownOrderIds=new Set();
 let orderTimers={};
 let activeClient='all';
+let orderMap={};
+let diagLog=[];
+
+function log(msg,data){
+  const line=data?`${msg}: ${JSON.stringify(data)}`:msg;
+  diagLog.push(line);
+  console.log(msg,data||'');
+  const el=document.getElementById('diag-output');
+  if(el)el.innerHTML=diagLog.slice(-30).join('<br>');
+}
+
+function toggleDiag(){
+  const el=document.getElementById('diag-panel');
+  el.style.display=el.style.display==='block'?'none':'block';
+  if(el.style.display==='block')runDiagnostics();
+}
+
+async function runDiagnostics(){
+  diagLog=[];
+  const el=document.getElementById('diag-output');
+  if(el)el.innerHTML='Running...';
+
+  log('=== DIAGNOSTICS START ===');
+  log('Time',new Date().toLocaleTimeString());
+  log('Total orders in memory',allOrders.length);
+
+  if(allOrders.length>0){
+    const first=allOrders[0];
+    log('First order keys',Object.keys(first));
+    log('First order Order_ID',first.Order_ID);
+    log('First order sheetId',first.sheetId);
+    log('First order clientName',first.clientName);
+    log('Order_ID type',typeof first.Order_ID);
+    log('Order_ID is empty?',first.Order_ID===''||first.Order_ID===null||first.Order_ID===undefined);
+  }else{
+    log('NO ORDERS IN MEMORY — loading now...');
+    await loadDashboard();
+  }
+
+  log('OrderMap size',Object.keys(orderMap).length);
+  if(Object.keys(orderMap).length>0){
+    const firstKey=Object.keys(orderMap)[0];
+    log('First orderMap entry',orderMap[firstKey]);
+  }
+
+  log('=== SHEET TEST ===');
+  for(const client of CLIENTS){
+    try{
+      log(`Testing sheet for ${client.id}...`);
+      const url=`https://docs.google.com/spreadsheets/d/${client.sheetId}/gviz/tq?tqx=out:json&sheet=Orders`;
+      const res=await fetch(url);
+      const text=await res.text();
+      const json=JSON.parse(text.substring(47).slice(0,-2));
+      const cols=json.table.cols.map(c=>c.label);
+      log(`Columns in sheet`,cols);
+      if(json.table.rows.length>0){
+        const firstRow={};
+        json.table.rows[0].c.forEach((cell,i)=>{
+          firstRow[cols[i]]=cell?cell.v:'';
+        });
+        log('First row raw data',firstRow);
+        log('Order_ID column value',firstRow['Order_ID']);
+        log('Order_ID column exists?',cols.includes('Order_ID'));
+      }
+    }catch(e){
+      log(`Error for ${client.id}`,e.message);
+    }
+  }
+  log('=== DIAGNOSTICS END ===');
+}
+
+
+
+
+
 
 async function fetchSheet(sheetId,tab){
   try{
@@ -210,26 +322,88 @@ async function fetchSheet(sheetId,tab){
     const res=await fetch(url);
     const text=await res.text();
     const json=JSON.parse(text.substring(47).slice(0,-2));
-    const cols=json.table.cols.map(c=>c.label);
-    return json.table.rows.map(row=>{
+
+    const rows=json.table.rows;
+    if(!rows||rows.length===0)return[];
+
+    // Check if headers are in first row or in cols
+    let cols=json.table.cols.map(c=>c.label);
+    const hasEmptyLabels=cols.every(c=>!c||c==='');
+
+    if(hasEmptyLabels){
+      // Headers are in first data row
+      log('Headers in first row — extracting...');
+      const headerRow=rows[0];
+      cols=headerRow.c.map(cell=>cell?cell.v:'');
+      log('Extracted cols',cols);
+      // Return data rows skipping header row
+      return rows.slice(1).map(row=>{
+        const obj={};
+        row.c.forEach((cell,i)=>{
+          obj[cols[i]]=cell?cell.v:'';
+        });
+        return obj;
+      });
+    }
+
+    log(`fetchSheet ${tab} cols`,cols);
+    return rows.map(row=>{
       const obj={};
-      row.c.forEach((cell,i)=>{obj[cols[i]]=cell?cell.v:""});
+      row.c.forEach((cell,i)=>{obj[cols[i]]=cell?cell.v:'';});
       return obj;
     });
-  }catch(e){return[];}
+  }catch(e){
+    log('fetchSheet error',e.message);
+    return[];
+  }
 }
+
+
+
+
+
+
+
+
 
 async function loadDashboard(){
   allOrders=[];
+  log('=== LOAD DASHBOARD START ===');
+
   for(const client of CLIENTS){
     try{
+      log(`Loading ${client.name}...`);
       const orders=await fetchSheet(client.sheetId,'Orders');
+      log(`Orders loaded for ${client.id}`,orders.length);
+
+      if(orders.length>0){
+        log('First order keys',Object.keys(orders[0]));
+        log('First order raw',orders[0]);
+        log('Order_ID value',orders[0]['Order_ID']);
+      }
+
       orders.forEach(o=>{
-        allOrders.push({...o,clientName:client.name,clientId:client.id,
-          managerNumber:client.managerNumber,sheetId:client.sheetId});
+        const merged={
+          ...o,
+          clientName:client.name,
+          clientId:client.id,
+          sheetId:client.sheetId,
+          managerNumber:client.managerNumber
+        };
+        allOrders.push(merged);
       });
-    }catch(e){}
+    }catch(e){
+      log(`Error loading ${client.name}`,e.message);
+    }
   }
+
+  log('Total allOrders',allOrders.length);
+  if(allOrders.length>0){
+    log('Sample merged order',allOrders[0]);
+    log('Sample Order_ID',allOrders[0].Order_ID);
+    log('Sample sheetId',allOrders[0].sheetId);
+  }
+
   checkNewOrders();
   checkEscalations();
   updateStats();
@@ -261,9 +435,7 @@ function checkNewOrders(){
       if(knownOrderIds.size>0){
         addNotification(`New order ${id} from ${o.Customer_Phone||'customer'} — ${o.clientName}`);
         if(Notification.permission==='granted'){
-          new Notification('New Order!',{
-            body:`Order ${id} — ${o.Items||''}`,
-          });
+          new Notification('New Order!',{body:`Order ${id} — ${o.Items||''}`});
         }
       }
       knownOrderIds.add(id);
@@ -289,12 +461,14 @@ function startEscalationTimer(order){
 }
 
 function sendEscalationAlert(order){
-  const msg=`ESCALATION ALERT!\nOrder ${order.Order_ID} pending for ${ESCALATION_MINUTES} minutes!\nClient: ${order.clientName}\nItems: ${order.Items||'N/A'}\nAddress: ${order.Address||'N/A'}\nPlease take action immediately!`;
   fetch(`${RAILWAY_URL}/escalate`,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({to:order.managerNumber,message:msg})
-  }).catch(e=>console.log('Escalation:',e));
+    body:JSON.stringify({
+      to:order.managerNumber,
+      message:`ESCALATION!\nOrder ${order.Order_ID} pending ${ESCALATION_MINUTES} mins!\nClient: ${order.clientName}\nItems: ${order.Items||'N/A'}\nAddress: ${order.Address||'N/A'}`
+    })
+  }).catch(e=>log('Escalation error',e.message));
 }
 
 function checkEscalations(){
@@ -313,7 +487,9 @@ function checkEscalations(){
   if(escalated.length>0){
     banner.style.display='block';
     list.innerHTML=escalated.map(o=>
-      `<div class="escalation-item">Order ${o.Order_ID} — ${o.clientName} — ${o.Items||''}</div>`
+      `<div class="escalation-item">
+        Order ${o.Order_ID} — ${o.clientName} — ${o.Items||''}
+      </div>`
     ).join('');
   }else{
     banner.style.display='none';
@@ -322,9 +498,8 @@ function checkEscalations(){
 
 function getOrderAge(dateStr){
   if(!dateStr)return 0;
-  try{
-    return Math.round((new Date()-new Date(dateStr))/(1000*60));
-  }catch(e){return 0;}
+  try{return Math.round((new Date()-new Date(dateStr))/(1000*60));}
+  catch(e){return 0;}
 }
 
 function updateStats(){
@@ -343,17 +518,39 @@ function updateStats(){
 }
 
 function renderPendingOrders(){
+  orderMap={};
   const filtered=getFilteredOrders();
   const pending=filtered.filter(o=>(o.Status||'New')==='New');
   const el=document.getElementById('pending-orders-list');
+
+  log('renderPendingOrders count',pending.length);
+  pending.forEach((o,i)=>{
+    log(`Pending[${i}] Order_ID`,o.Order_ID);
+    log(`Pending[${i}] sheetId`,o.sheetId);
+  });
+
   if(pending.length===0){
-    el.innerHTML='<div class="empty">No pending orders! All clear</div>';return;
+    el.innerHTML='<div class="empty">No pending orders! All clear</div>';
+    return;
   }
-  el.innerHTML=pending.slice().reverse().map(o=>{
+  el.innerHTML=pending.slice().reverse().map((o,idx)=>{
     const age=getOrderAge(o.Date_Time);
     const isEscalated=age>ESCALATION_MINUTES;
     const total=parseFloat(o.Total_AED||o.Total||0);
     const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+    const mapKey='p_'+idx;
+    const allKeys=Object.keys(o);
+	log('Order keys at render time',allKeys);
+	const idKey=allKeys.find(k=>
+	  k.replace(/[\s_]/g,'').toLowerCase()==='orderid'
+	)||allKeys[0];
+	log('Detected idKey',idKey);
+	log('ID value',o[idKey]);
+	orderMap[mapKey]={
+	  orderId:o[idKey],
+	  sheetId:o.sheetId
+	};
+    log(`orderMap[${mapKey}]`,orderMap[mapKey]);
     return `<div class="order-card pending ${isEscalated?'escalated':''}">
       <div class="order-header">
         <div>
@@ -368,14 +565,14 @@ function renderPendingOrders(){
       <div class="order-address">📍 ${o.Address||'-'}</div>
       <div class="order-footer">
         <div>
-          <div class="total-display">${totalDisp}</div>
+          <div style="font-weight:600">${totalDisp}</div>
           ${age>0?`<div class="timer">${age} min ago${isEscalated?' — ESCALATED':''}</div>`:''}
         </div>
-        <div class="action-btns">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn btn-green"
-            onclick="updateStatus('${o.Order_ID}','Delivered')">Delivered</button>
+            onclick="updateStatus('${mapKey}','Delivered')">Delivered</button>
           <button class="btn btn-red"
-            onclick="updateStatus('${o.Order_ID}','Cancelled')">Cancel</button>
+            onclick="updateStatus('${mapKey}','Cancelled')">Cancel</button>
         </div>
       </div>
     </div>`;
@@ -391,14 +588,21 @@ function renderAllOrders(){
   );
   document.getElementById('all-orders-count').textContent=`${filtered.length} orders`;
   const el=document.getElementById('all-orders-list');
-  if(filtered.length===0){el.innerHTML='<div class="empty">No orders found</div>';return;}
-  el.innerHTML=filtered.slice().reverse().slice(0,50).map(o=>{
+  if(filtered.length===0){
+    el.innerHTML='<div class="empty">No orders found</div>';return;
+  }
+  el.innerHTML=filtered.slice().reverse().slice(0,50).map((o,idx)=>{
     const status=o.Status||'New';
     const badgeClass=status==='New'?'amber':
       status==='Delivered'?'green':
       status==='Cancelled'?'red':'blue';
     const total=parseFloat(o.Total_AED||o.Total||0);
     const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+    const mapKey='a_'+idx;
+    orderMap[mapKey]={
+      orderId:o.Order_ID,
+      sheetId:o.sheetId
+    };
     return `<div class="order-card ${status==='New'?'pending':''}">
       <div class="order-header">
         <div>
@@ -410,12 +614,12 @@ function renderAllOrders(){
       <div class="order-items">${o.Items||'-'}</div>
       <div class="order-address">📍 ${o.Address||'-'} • ${o.Date_Time||''}</div>
       <div class="order-footer">
-        <div class="total-display">${totalDisp}</div>
-        ${status==='New'?`<div class="action-btns">
+        <div style="font-weight:600">${totalDisp}</div>
+        ${status==='New'?`<div style="display:flex;gap:6px">
           <button class="btn btn-green"
-            onclick="updateStatus('${o.Order_ID}','Delivered')">Delivered</button>
+            onclick="updateStatus('${mapKey}','Delivered')">Delivered</button>
           <button class="btn btn-red"
-            onclick="updateStatus('${o.Order_ID}','Cancelled')">Cancel</button>
+            onclick="updateStatus('${mapKey}','Cancelled')">Cancel</button>
         </div>`:''}
       </div>
     </div>`;
@@ -450,27 +654,72 @@ function renderClients(){
            target="_blank">
           <button class="btn btn-blue">📊 View Sheet</button>
         </a>
-        <button class="btn btn-gray"
-          onclick="filterByClient('${c.id}',document.querySelector('.filter-btn'))">
-          View Orders
-        </button>
       </div>
     </div>`;
   }).join('');
 }
 
-function updateStatus(orderId,newStatus){
-  const order=allOrders.find(o=>o.Order_ID===orderId);
-  if(order){
-    order.Status=newStatus;
-    if(orderTimers[orderId]){
-      clearTimeout(orderTimers[orderId]);
-      delete orderTimers[orderId];
+async function updateStatus(mapKey,newStatus){
+  log('updateStatus called',{mapKey,newStatus});
+  log('orderMap at time of click',JSON.stringify(orderMap));
+
+  const entry=orderMap[mapKey];
+  log('entry found',entry);
+
+  if(!entry){
+    alert('Order not found in map. Key: '+mapKey+'. Please refresh.');
+    return;
+  }
+
+  const orderId=entry.orderId;
+  const sheetId=entry.sheetId;
+
+  log('orderId',orderId);
+  log('sheetId',sheetId);
+
+  if(!orderId){
+    alert('Order ID is empty!\nKey: '+mapKey+'\nEntry: '+JSON.stringify(entry)+'\nCheck diagnostics panel for details.');
+    return;
+  }
+
+  if(!sheetId){
+    alert('Sheet ID is empty! Please refresh.');
+    return;
+  }
+
+  try{
+    log('Sending update request...');
+    const res=await fetch(`${RAILWAY_URL}/update-order`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        order_id:orderId,
+        status:newStatus,
+        sheet_id:sheetId
+      })
+    });
+    log('Response status',res.status);
+    const data=await res.json();
+    log('Response data',JSON.stringify(data));
+
+    if(data.success){
+      const order=allOrders.find(o=>o.Order_ID===orderId);
+      if(order)order.Status=newStatus;
+      if(orderTimers[orderId]){
+        clearTimeout(orderTimers[orderId]);
+        delete orderTimers[orderId];
+      }
+      addNotification(`Order ${orderId} marked as ${newStatus}`);
+      renderPendingOrders();
+      renderAllOrders();
+      updateStats();
+      alert(`Order ${orderId} marked as ${newStatus}!`);
+    }else{
+      alert('Could not update: '+JSON.stringify(data));
     }
-    addNotification(`Order ${orderId} marked as ${newStatus}`);
-    renderPendingOrders();
-    renderAllOrders();
-    updateStats();
+  }catch(e){
+    log('Update error',e.message);
+    alert('Connection error: '+e.message);
   }
 }
 
