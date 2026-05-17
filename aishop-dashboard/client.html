@@ -38,6 +38,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-green{background:#22c55e;color:white}
 .btn-red{background:#ef4444;color:white}
 .btn-blue{background:#3b82f6;color:white}
+.btn-gray{background:#f0f0f0;color:#666}
 .empty{text-align:center;padding:30px;color:#999;font-size:13px}
 .tab-bar{display:flex;gap:6px;margin-bottom:16px;overflow-x:auto;padding-bottom:4px}
 .tab{padding:8px 16px;border-radius:8px;border:1px solid #e0e0e0;background:white;font-size:13px;cursor:pointer;white-space:nowrap;font-weight:500}
@@ -181,20 +182,59 @@ document.getElementById('shop-info').innerHTML=`
 
 let orders=[];
 let customers=[];
+let orderMap={};
 
 async function fetchSheet(tab){
   try{
-    const url=`https://docs.google.com/spreadsheets/d/${client.sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tab)}`;
+    const url=`https://docs.google.com/spreadsheets/d/${client.sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(tab)}&headers=1`;
     const res=await fetch(url);
     const text=await res.text();
     const json=JSON.parse(text.substring(47).slice(0,-2));
-    const cols=json.table.cols.map(c=>c.label);
-    return json.table.rows.map(row=>{
+    const rows=json.table.rows;
+    if(!rows||rows.length===0)return[];
+
+    let cols=json.table.cols.map(c=>c.label?c.label.trim():'');
+    const hasEmptyLabels=cols.every(c=>!c||c==='');
+
+    if(hasEmptyLabels){
+      const headerRow=rows[0];
+      cols=headerRow.c.map(cell=>cell?String(cell.v).trim():'');
+      return rows.slice(1).map(row=>{
+        const obj={};
+        row.c.forEach((cell,i)=>{
+          if(cols[i])obj[cols[i]]=cell?String(cell.v).trim():'';
+        });
+        return obj;
+      });
+    }
+
+    return rows.map(row=>{
       const obj={};
-      row.c.forEach((cell,i)=>{obj[cols[i]]=cell?cell.v:''});
+      row.c.forEach((cell,i)=>{
+        if(cols[i])obj[cols[i]]=cell?String(cell.v).trim():'';
+      });
       return obj;
     });
-  }catch(e){return[];}
+  }catch(e){
+    console.error('fetchSheet error:',e);
+    return[];
+  }
+}
+
+function getOrderId(o){
+  const allKeys=Object.keys(o);
+  const idKey=allKeys.find(k=>
+    k.replace(/[\s_]/g,'').toLowerCase()==='orderid'
+  )||allKeys[0];
+  return o[idKey]||o['Order_ID']||o['order_id']||'';
+}
+
+function getField(o,fieldName){
+  const allKeys=Object.keys(o);
+  const key=allKeys.find(k=>
+    k.trim().toLowerCase()===fieldName.toLowerCase()
+  );
+  return key?o[key]:'';
 }
 
 async function loadData(){
@@ -216,10 +256,18 @@ function getOrderAge(dateStr){
 
 function updateStats(){
   const today=new Date().toISOString().split('T')[0];
-  const pending=orders.filter(o=>(o.Status||'New')==='New').length;
-  const todayOrders=orders.filter(o=>
-    o.Date_Time&&o.Date_Time.toString().includes(today)).length;
-  const delivered=orders.filter(o=>o.Status==='Delivered').length;
+  const pending=orders.filter(o=>{
+    const s=getField(o,'Status')||'New';
+    return s.trim()==='New';
+  }).length;
+  const todayOrders=orders.filter(o=>{
+    const dt=getField(o,'Date_Time')||'';
+    return dt.includes(today);
+  }).length;
+  const delivered=orders.filter(o=>{
+    const s=getField(o,'Status')||'';
+    return s.trim()==='Delivered';
+  }).length;
   document.getElementById('stat-pending').textContent=pending;
   document.getElementById('stat-today').textContent=todayOrders;
   document.getElementById('stat-delivered').textContent=delivered;
@@ -227,25 +275,37 @@ function updateStats(){
 }
 
 function renderPending(){
-  const pending=orders.filter(o=>(o.Status||'New')==='New');
+  orderMap={};
+  const pending=orders.filter(o=>{
+    const s=getField(o,'Status')||'New';
+    return s.trim()==='New';
+  });
   const el=document.getElementById('pending-list');
   if(pending.length===0){
     el.innerHTML='<div class="empty">No pending orders! All clear</div>';return;
   }
-  el.innerHTML=pending.slice().reverse().map(o=>{
-    const age=getOrderAge(o.Date_Time);
-    const total=parseFloat(o.Total_AED||o.Total||0);
+  el.innerHTML=pending.slice().reverse().map((o,idx)=>{
+    const orderId=getOrderId(o);
+    const items=getField(o,'Items')||'-';
+    const address=getField(o,'Address')||'-';
+    const dateTime=getField(o,'Date_Time')||'';
+    const rawTotal=getField(o,'Total_AED')||getField(o,'Total')||'0';
+    const total=parseFloat(rawTotal);
     const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+    const age=getOrderAge(dateTime);
+    const mapKey='p_'+idx;
+    orderMap[mapKey]={orderId:orderId,sheetId:client.sheetId};
+
     return `<div class="order-card pending">
       <div class="order-header">
         <div>
-          <div class="order-id">📦 ${o.Order_ID||'-'}</div>
-          <div class="order-time">${o.Date_Time||''}</div>
+          <div class="order-id">📦 ${orderId||'-'}</div>
+          <div class="order-time">${dateTime}</div>
         </div>
         <span class="badge badge-red">Pending</span>
       </div>
-      <div class="order-items">${o.Items||'-'}</div>
-      <div class="order-address">📍 ${o.Address||'-'}</div>
+      <div class="order-items">${items}</div>
+      <div class="order-address">📍 ${address}</div>
       <div class="order-footer">
         <div>
           <div style="font-weight:600">${totalDisp}</div>
@@ -253,9 +313,9 @@ function renderPending(){
         </div>
         <div style="display:flex;gap:6px">
           <button class="btn btn-green"
-            onclick="markDelivered('${o.Order_ID}')">Delivered</button>
+            onclick="updateOrderStatus('${mapKey}','Delivered')">Delivered</button>
           <button class="btn btn-red"
-            onclick="markCancelled('${o.Order_ID}')">Cancel</button>
+            onclick="updateOrderStatus('${mapKey}','Cancelled')">Cancel</button>
         </div>
       </div>
     </div>`;
@@ -268,30 +328,39 @@ function renderAll(){
   if(orders.length===0){
     el.innerHTML='<div class="empty">No orders yet</div>';return;
   }
-  el.innerHTML=orders.slice().reverse().map(o=>{
-    const status=o.Status||'New';
+  el.innerHTML=orders.slice().reverse().map((o,idx)=>{
+    const orderId=getOrderId(o);
+    const status=(getField(o,'Status')||'New').trim();
+    const items=getField(o,'Items')||'-';
+    const address=getField(o,'Address')||'-';
+    const phone=getField(o,'Customer_Phone')||'-';
+    const dateTime=getField(o,'Date_Time')||'';
+    const rawTotal=getField(o,'Total_AED')||getField(o,'Total')||'0';
+    const total=parseFloat(rawTotal);
+    const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
     const badgeClass=status==='New'?'red':
       status==='Delivered'?'green':
       status==='Cancelled'?'red':'blue';
-    const total=parseFloat(o.Total_AED||o.Total||0);
-    const totalDisp=isNaN(total)||total===0?'FREE':`${total} AED`;
+    const mapKey='a_'+idx;
+    orderMap[mapKey]={orderId:orderId,sheetId:client.sheetId};
+
     return `<div class="order-card ${status==='New'?'pending':''}">
       <div class="order-header">
         <div>
-          <div class="order-id">${o.Order_ID||'-'}</div>
-          <div class="order-time">${o.Customer_Phone||''} • ${o.Date_Time||''}</div>
+          <div class="order-id">${orderId||'-'}</div>
+          <div class="order-time">${phone} • ${dateTime}</div>
         </div>
         <span class="badge badge-${badgeClass}">${status}</span>
       </div>
-      <div class="order-items">${o.Items||'-'}</div>
-      <div class="order-address">📍 ${o.Address||'-'}</div>
+      <div class="order-items">${items}</div>
+      <div class="order-address">📍 ${address}</div>
       <div class="order-footer">
         <div style="font-weight:600">${totalDisp}</div>
         ${status==='New'?`<div style="display:flex;gap:6px">
           <button class="btn btn-green"
-            onclick="markDelivered('${o.Order_ID}')">Delivered</button>
+            onclick="updateOrderStatus('${mapKey}','Delivered')">Delivered</button>
           <button class="btn btn-red"
-            onclick="markCancelled('${o.Order_ID}')">Cancel</button>
+            onclick="updateOrderStatus('${mapKey}','Cancelled')">Cancel</button>
         </div>`:''}
       </div>
     </div>`;
@@ -300,7 +369,8 @@ function renderAll(){
 
 function renderCustomers(){
   const el=document.getElementById('customers-list');
-  document.getElementById('customer-count').textContent=`${customers.length} customers`;
+  document.getElementById('customer-count').textContent=
+    `${customers.length} customers`;
   if(customers.length===0){
     el.innerHTML='<div class="empty">No customers yet</div>';return;
   }
@@ -308,36 +378,39 @@ function renderCustomers(){
     <div class="order-card">
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div>
-          <div style="font-weight:600;font-size:14px">+${c.Phone||'-'}</div>
+          <div style="font-weight:600;font-size:14px">
+            +${getField(c,'Phone')||'-'}
+          </div>
           <div style="font-size:12px;color:#666;margin-top:3px">
-            📍 ${c.Address||'No address saved'}
+            📍 ${getField(c,'Address')||'No address saved'}
           </div>
           <div style="font-size:12px;color:#666;margin-top:2px">
-            Last order: ${c.Last_Order||'N/A'}
+            Last order: ${getField(c,'Last_Order')||'N/A'}
           </div>
         </div>
         <div style="text-align:right">
-          <div style="font-weight:600;color:#22c55e">${c.Total_Orders||0} orders</div>
-          <span class="badge badge-green" style="margin-top:4px;display:inline-block">
-            Active
-          </span>
+          <div style="font-weight:600;color:#22c55e">
+            ${getField(c,'Total_Orders')||0} orders
+          </div>
+          <span class="badge badge-green"
+            style="margin-top:4px;display:inline-block">Active</span>
         </div>
       </div>
     </div>`).join('');
 }
 
-async function markDelivered(orderId){
-  await updateOrderStatus(orderId,'Delivered');
-}
+async function updateOrderStatus(mapKey,newStatus){
+  const entry=orderMap[mapKey];
+  if(!entry||!entry.orderId){
+    alert('Order not found. Please refresh and try again.');
+    return;
+  }
 
-async function markCancelled(orderId){
-  await updateOrderStatus(orderId,'Cancelled');
-}
+  const orderId=entry.orderId;
+  const sheetId=entry.sheetId;
 
-async function updateOrderStatus(orderId,newStatus){
-  const o=orders.find(x=>x.Order_ID===orderId);
-  if(!o)return;
-  console.log('Updating:',orderId,newStatus,client.sheetId);
+  console.log('Updating:',orderId,'to',newStatus);
+
   try{
     const res=await fetch(`${RAILWAY_URL}/update-order`,{
       method:'POST',
@@ -345,14 +418,19 @@ async function updateOrderStatus(orderId,newStatus){
       body:JSON.stringify({
         order_id:orderId,
         status:newStatus,
-        sheet_id:client.sheetId
+        sheet_id:sheetId
       })
     });
-    console.log('Response:',res.status);
     const data=await res.json();
-    console.log('Data:',data);
+    console.log('Response:',data);
+
     if(data.success){
-      o.Status=newStatus;
+      const o=orders.find(x=>getOrderId(x)===orderId);
+      if(o){
+        const allKeys=Object.keys(o);
+        const statusKey=allKeys.find(k=>k.trim().toLowerCase()==='status')||'Status';
+        o[statusKey]=newStatus;
+      }
       renderPending();
       renderAll();
       updateStats();

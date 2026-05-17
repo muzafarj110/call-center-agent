@@ -9,12 +9,13 @@ import random
 import string
 from datetime import datetime
 from dotenv import load_dotenv
+from collections import defaultdict
+import time
 
 load_dotenv()
 
-app = Flask(__name__) 
+app = Flask(__name__)
 CORS(app)
-
 
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 WHATSAPP_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID")
@@ -34,6 +35,32 @@ SHEET_ID = "1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s"
 SHOP_NAME = "Daily Fresh Vegetables & Fruits L.L.C"
 SHOP_HOURS = "8:00 AM to 12:00 PM"
 ESCALATION_NUMBER = "971565893710"
+
+request_counts = defaultdict(list)
+RATE_LIMIT = 10
+RATE_WINDOW = 60
+
+def is_rate_limited(ip):
+    now = time.time()
+    reqs = request_counts[ip]
+    reqs = [r for r in reqs if now - r < RATE_WINDOW]
+    request_counts[ip] = reqs
+    if len(reqs) >= RATE_LIMIT:
+        return True
+    reqs.append(now)
+    return False
+
+def sanitize_input(text):
+    if not text:
+        return ""
+    dangerous = [
+        "<script>", "</script>", "javascript:",
+        "DROP TABLE", "SELECT *", "--", ";--"
+    ]
+    text = str(text)
+    for d in dangerous:
+        text = text.replace(d, "")
+    return text[:1000]
 
 def get_sheet():
     scope = [
@@ -97,14 +124,14 @@ def save_customer(phone, address):
         for i, row in enumerate(records):
             if str(row['Phone']) == str(phone):
                 row_num = i + 2
-                worksheet.update(f"C{row_num}", address)
+                worksheet.update(f"C{row_num}", [[address]])
                 worksheet.update(f"D{row_num}",
-                    datetime.now().strftime("%Y-%m-%d %H:%M"))
+                    [[datetime.now().strftime("%Y-%m-%d %H:%M")]])
                 try:
                     total = int(row.get('Total_Orders', 0)) + 1
                 except ValueError:
                     total = 1
-                worksheet.update(f"E{row_num}", str(total))
+                worksheet.update(f"E{row_num}", [[str(total)]])
                 print(f"Customer updated: {phone}")
                 return
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -139,15 +166,12 @@ def extract_order_from_conversation(sender):
             conversation_text += f"{role}: {msg['content']}\n"
 
         extract_prompt = f"""Extract order details from this conversation.
-Return ONLY in this exact format with no extra text:
+Return ONLY in this exact format:
 ITEMS: [items and quantities]
 TOTAL: [number only no currency symbol, if free write 0]
 ADDRESS: [delivery address]
 
-Rules:
-- TOTAL must be a number only like 15 or 10.5
-- If total is free or zero write 0
-- If truly nothing found return: INCOMPLETE
+If truly nothing found return: INCOMPLETE
 
 Conversation:
 {conversation_text}"""
@@ -352,6 +376,68 @@ def get_ai_reply(sender, message):
     })
     return reply
 
+@app.route("/login", methods=["POST"])
+def login():
+    try:
+        data = request.get_json()
+        username = data.get("username", "").strip()
+        password = data.get("password", "").strip()
+        role = data.get("role", "").strip()
+        client_id = data.get("client_id", "").strip()
+
+        admin_users = {
+            os.getenv("ADMIN_USER_1", "admin"): os.getenv("ADMIN_PASS_1", ""),
+            os.getenv("ADMIN_USER_2", "muzafar"): os.getenv("ADMIN_PASS_2", "")
+        }
+
+        client_passwords = {
+            "dailyfresh": os.getenv("CLIENT_PASS_DAILYFRESH", ""),
+            "freshmart": os.getenv("CLIENT_PASS_FRESHMART", "")
+        }
+
+        if role == "admin":
+            if username in admin_users and admin_users[username] == password and password != "":
+                return {
+                    "success": True,
+                    "role": "admin",
+                    "token": os.getenv("ADMIN_TOKEN", "")
+                }, 200
+            return {"success": False, "error": "Wrong credentials"}, 401
+
+        elif role == "client":
+            if client_id in client_passwords and client_passwords[client_id] == password and password != "":
+                return {
+                    "success": True,
+                    "role": "client",
+                    "client_id": client_id,
+                    "token": os.getenv("CLIENT_TOKEN", "")
+                }, 200
+            return {"success": False, "error": "Wrong password"}, 401
+
+        return {"success": False, "error": "Invalid role"}, 400
+
+    except Exception as e:
+        print(f"Login error: {e}")
+        return {"success": False, "error": "Server error"}, 500
+
+@app.route("/verify-token", methods=["POST"])
+def verify_token():
+    try:
+        data = request.get_json()
+        token = data.get("token", "")
+        role = data.get("role", "")
+        admin_token = os.getenv("ADMIN_TOKEN", "")
+        client_token = os.getenv("CLIENT_TOKEN", "")
+        if not admin_token or not client_token:
+            return {"valid": False}, 401
+        if role == "admin" and token == admin_token:
+            return {"valid": True}, 200
+        elif role == "client" and token == client_token:
+            return {"valid": True}, 200
+        return {"valid": False}, 401
+    except Exception as e:
+        return {"valid": False}, 500
+
 @app.route("/update-order", methods=["POST"])
 def update_order():
     try:
@@ -359,10 +445,9 @@ def update_order():
         order_id = data.get("order_id")
         new_status = data.get("status")
         sheet_id = data.get("sheet_id")
-
+        print(f"Updating order: {order_id} to {new_status}")
         if not order_id or not new_status or not sheet_id:
             return {"error": "Missing data"}, 400
-
         scope = [
             "https://spreadsheets.google.com/feeds",
             "https://www.googleapis.com/auth/drive"
@@ -372,32 +457,50 @@ def update_order():
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(sheet_id)
         worksheet = sh.worksheet("Orders")
-        records = worksheet.get_all_records()
-
-        for i, row in enumerate(records):
-            if str(row.get("Order_ID", "")) == str(order_id):
-                row_num = i + 2
-                worksheet.update(f"F{row_num}", [[new_status]])
-                print(f"Order {order_id} updated to {new_status}")
-                return {"success": True, "order_id": order_id,
-                        "status": new_status}, 200
-
-        return {"error": "Order not found"}, 404
-
+        all_values = worksheet.get_all_values()
+        if len(all_values) < 1:
+            return {"error": "Sheet is empty"}, 404
+        headers = all_values[0]
+        status_col = None
+        for i, h in enumerate(headers):
+            if h.strip().lower() == "status":
+                status_col = i
+                break
+        if status_col is None:
+            return {"error": f"Status column not found"}, 400
+        order_row = None
+        for i, row in enumerate(all_values):
+            if i == 0:
+                continue
+            if row[0].strip() == str(order_id).strip():
+                order_row = i + 1
+                break
+        if order_row is None:
+            return {"error": f"Order {order_id} not found"}, 404
+        col_letter = chr(65 + status_col)
+        cell = f"{col_letter}{order_row}"
+        worksheet.update(cell, [[new_status]])
+        print(f"Order {order_id} updated to {new_status} at {cell}")
+        return {"success": True, "order_id": order_id,
+                "status": new_status}, 200
     except Exception as e:
         print(f"Update order error: {e}")
         return {"error": str(e)}, 500
-        
+
 @app.route("/escalate", methods=["POST"])
 def escalate():
-    data = request.get_json()
-    to = data.get("to")
-    message = data.get("message")
-    if to and message:
-        send_whatsapp_message(to, message)
-        print(f"Escalation sent to {to}")
-    return "OK", 200
-    
+    try:
+        data = request.get_json()
+        to = data.get("to")
+        message = data.get("message")
+        if to and message:
+            send_whatsapp_message(to, message)
+            print(f"Escalation sent to {to}")
+        return "OK", 200
+    except Exception as e:
+        print(f"Escalation error: {e}")
+        return "Error", 500
+
 @app.route("/webhook", methods=["GET"])
 def verify():
     mode = request.args.get("hub.mode")
@@ -412,6 +515,11 @@ def verify():
 def webhook():
     data = request.get_json()
     try:
+        ip = request.remote_addr
+        if is_rate_limited(ip):
+            print(f"Rate limited: {ip}")
+            return "Too many requests", 429
+
         entry = data["entry"][0]
         changes = entry["changes"][0]
         value = changes["value"]
@@ -419,10 +527,9 @@ def webhook():
             message = value["messages"][0]
             sender = message["from"]
             if message["type"] == "text":
-                text = message["text"]["body"]
+                text = sanitize_input(message["text"]["body"])
                 print(f"Message from {sender}: {text}")
 
-                # Reset conversation
                 if text.lower() in ["/start", "/ابدأ"]:
                     conversations[sender] = []
                     waiting_confirmation[sender] = False
@@ -440,7 +547,7 @@ def webhook():
                         )
                     else:
                         welcome = (
-                            f"Welcome to {SHOP_NAME}!\n"
+                            f"Welcome to {SHOP_NAME}!\n\n"
                             f"We deliver the freshest vegetables "
                             f"and fruits to your door!\n"
                             f"Delivery is always FREE!\n\n"
@@ -451,17 +558,14 @@ def webhook():
                     send_whatsapp_message(sender, welcome)
                     return "OK", 200
 
-                # Handle address choice 1 or 2
                 if waiting_confirmation.get(sender) and text.strip() in ["1", "2"]:
                     customer = get_customer(sender)
                     if customer and customer.get('Address'):
                         if text.strip() == "1":
                             address = customer['Address']
-                            print(f"Using saved address: {address}")
                         else:
                             address = known_addresses.get(sender, "")
                             if not address:
-                                # Ask for new address
                                 waiting_confirmation[sender] = False
                                 reply = (
                                     "Please share your new delivery address.\n\n"
@@ -493,7 +597,6 @@ def webhook():
                         send_whatsapp_message(sender, reply)
                         return "OK", 200
 
-                # Waiting for YES or NO
                 if waiting_confirmation.get(sender):
                     print(f"In confirmation mode for {sender}")
                     if is_confirmation(text):
@@ -538,20 +641,18 @@ def webhook():
                                 )
                             else:
                                 reply = (
-                                    f"Sorry, problem saving order.\n"
+                                    f"Sorry, there was a problem saving your order.\n"
                                     f"Our team will contact you shortly.\n\n"
-                                    f"عذراً، حدث خطأ.\n"
+                                    f"عذراً، حدث خطأ في حفظ طلبك.\n"
                                     f"سيتواصل معك فريقنا قريباً."
                                 )
                         elif order and order.get('items') and not order.get('address'):
-                            # Missing address - ask for it
                             waiting_confirmation[sender] = False
                             reply = (
                                 "Please share your delivery address to complete the order.\n\n"
                                 "من فضلك شارك عنوانك لإكمال الطلب."
                             )
                         else:
-                            # Missing items - ask for them
                             waiting_confirmation[sender] = False
                             reply = get_ai_reply(sender,
                                 "System: Customer said yes but order details unclear. Ask what they want to order.")
@@ -578,7 +679,6 @@ def webhook():
                             "الرجاء الرد بنعم للتأكيد أو لا للإلغاء.")
                         return "OK", 200
 
-                # Check for address typed by customer
                 address_detected = is_address(text)
                 if address_detected and not waiting_confirmation.get(sender):
                     print(f"Address found from {sender}!")
@@ -611,17 +711,14 @@ def webhook():
                     final_reply = (
                         ai_reply +
                         "\n\n----------------------------------------"
-                        "\nReply YES to confirm / نعم للتأكيد"
+                        "\nReply YES to confirm your order / نعم للتأكيد"
                         "\nReply NO to cancel / لا للإلغاء"
                     )
                     send_whatsapp_message(sender, final_reply)
                     return "OK", 200
 
-                # Normal conversation
                 reply = get_ai_reply(sender, text)
 
-                # Check if agent is asking for address
-                # and customer has a saved address
                 if is_asking_for_address(reply) and not address_prompted.get(sender):
                     customer = get_customer(sender)
                     if customer and customer.get('Address'):
@@ -643,7 +740,6 @@ def webhook():
                             f"اكتب 2 لإدخال عنوان جديد"
                         )
 
-                # Check for complaint
                 complaint_words = [
                     "complaint", "problem", "wrong", "bad",
                     "terrible", "manager", "refund", "angry", "worst",
