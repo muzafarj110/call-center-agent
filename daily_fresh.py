@@ -377,7 +377,7 @@ def update_order():
         for i, row in enumerate(records):
             if str(row.get("Order_ID", "")) == str(order_id):
                 row_num = i + 2
-                worksheet.update(f"F{row_num}", new_status)
+                worksheet.update(f"F{row_num}", [[new_status]])
                 print(f"Order {order_id} updated to {new_status}")
                 return {"success": True, "order_id": order_id,
                         "status": new_status}, 200
