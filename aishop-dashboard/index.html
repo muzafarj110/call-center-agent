@@ -196,9 +196,31 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <script>
-if(sessionStorage.getItem('aishop_role')!=='admin'){
-  window.location.href='login.html';
+
+
+async function checkAuth(){
+  const role=sessionStorage.getItem('aishop_role');
+  const token=sessionStorage.getItem('aishop_token');
+  if(!role||!token){
+    window.location.href='login.html';
+    return;
+  }
+  try{
+    const res=await fetch(`${RAILWAY_URL}/verify-token`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token,role})
+    });
+    const data=await res.json();
+    if(!data.valid){
+      sessionStorage.clear();
+      window.location.href='login.html';
+    }
+  }catch(e){
+    console.log('Auth check failed',e);
+  }
 }
+checkAuth();
 
 function logout(){
   sessionStorage.clear();

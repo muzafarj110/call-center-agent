@@ -68,8 +68,7 @@ select{width:100%;padding:10px 14px;border:1px solid #e0e0e0;border-radius:8px;f
 </div>
 
 <script>
-const ADMIN_USERS={"admin":"aishop2026","muzafar":"aishop2026"};
-const CLIENT_PASSWORDS={"dailyfresh":"fresh2026","freshmart":"mart2026"};
+const RAILWAY_URL='https://call-center-agent-production.up.railway.app';
 
 function showError(msg){
   const el=document.getElementById('error-msg');
@@ -77,38 +76,84 @@ function showError(msg){
   el.style.display='block';
 }
 
-function login(){
-  const user=document.getElementById('username').value.trim();
-  const pass=document.getElementById('password').value.trim();
-  if(!user||!pass){showError('Please enter username and password');return;}
-  if(ADMIN_USERS[user]&&ADMIN_USERS[user]===pass){
-    sessionStorage.setItem('aishop_role','admin');
-    sessionStorage.setItem('aishop_user',user);
-    window.location.href='index.html';
-  }else{
-    showError('Wrong username or password');
+function hideError(){
+  document.getElementById('error-msg').style.display='none';
+}
+
+async function login(){
+  hideError();
+  const username=document.getElementById('username').value.trim();
+  const password=document.getElementById('password').value.trim();
+  if(!username||!password){showError('Please enter username and password');return;}
+  try{
+    const res=await fetch(`${RAILWAY_URL}/login`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username,password,role:'admin'})
+    });
+    const data=await res.json();
+    if(data.success){
+      sessionStorage.setItem('aishop_role','admin');
+      sessionStorage.setItem('aishop_token',data.token);
+      sessionStorage.setItem('aishop_user',username);
+      window.location.href='index.html';
+    }else{
+      showError('Wrong username or password');
+    }
+  }catch(e){
+    showError('Connection error. Please try again.');
   }
 }
 
-function clientLogin(){
-  const client=document.getElementById('client-select').value;
-  const pass=document.getElementById('client-password').value.trim();
-  if(!client){showError('Please select your shop');return;}
-  if(!pass){showError('Please enter password');return;}
-  if(CLIENT_PASSWORDS[client]&&CLIENT_PASSWORDS[client]===pass){
-    sessionStorage.setItem('aishop_role','client');
-    sessionStorage.setItem('aishop_client',client);
-    window.location.href='client.html';
-  }else{
-    showError('Wrong shop password');
+async function clientLogin(){
+  hideError();
+  const clientId=document.getElementById('client-select').value;
+  const password=document.getElementById('client-password').value.trim();
+  if(!clientId){showError('Please select your shop');return;}
+  if(!password){showError('Please enter password');return;}
+  try{
+    const res=await fetch(`${RAILWAY_URL}/login`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password,role:'client',client_id:clientId})
+    });
+    const data=await res.json();
+    if(data.success){
+      sessionStorage.setItem('aishop_role','client');
+      sessionStorage.setItem('aishop_token',data.token);
+      sessionStorage.setItem('aishop_client',clientId);
+      window.location.href='client.html';
+    }else{
+      showError('Wrong shop password');
+    }
+  }catch(e){
+    showError('Connection error. Please try again.');
   }
 }
 
-if(sessionStorage.getItem('aishop_role')==='admin'){
-  window.location.href='index.html';
-}else if(sessionStorage.getItem('aishop_role')==='client'){
-  window.location.href='client.html';
+async function checkExistingSession(){
+  const role=sessionStorage.getItem('aishop_role');
+  const token=sessionStorage.getItem('aishop_token');
+  if(!role||!token)return;
+  try{
+    const res=await fetch(`${RAILWAY_URL}/verify-token`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token,role})
+    });
+    const data=await res.json();
+    if(data.valid){
+      if(role==='admin')window.location.href='index.html';
+      else window.location.href='client.html';
+    }else{
+      sessionStorage.clear();
+    }
+  }catch(e){
+    sessionStorage.clear();
+  }
 }
+
+checkExistingSession();
 </script>
 </body>
 </html>

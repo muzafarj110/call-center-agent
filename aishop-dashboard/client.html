@@ -156,9 +156,31 @@ const CLIENTS={
   }
 };
 
-if(sessionStorage.getItem('aishop_role')!=='client'){
-  window.location.href='login.html';
+const RAILWAY_URL='https://call-center-agent-production.up.railway.app';
+
+async function checkAuth(){
+  const role=sessionStorage.getItem('aishop_role');
+  const token=sessionStorage.getItem('aishop_token');
+  if(!role||!token){
+    window.location.href='login.html';
+    return;
+  }
+  try{
+    const res=await fetch(`${RAILWAY_URL}/verify-token`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token,role})
+    });
+    const data=await res.json();
+    if(!data.valid){
+      sessionStorage.clear();
+      window.location.href='login.html';
+    }
+  }catch(e){
+    console.log('Auth check failed',e);
+  }
 }
+checkAuth();
 
 const clientId=sessionStorage.getItem('aishop_client');
 const client=CLIENTS[clientId];
