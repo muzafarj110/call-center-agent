@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
+import string
 import threading
 import time
 from dataclasses import dataclass, field
@@ -587,6 +589,38 @@ def upsert_customer(sheet_id: str, phone: str, name: str = "", address: str = ""
     ws.append_row([phone, name, address, _now()], value_input_option="USER_ENTERED")
 
 
+def _items_to_text(items) -> str:
+    """Render the extracted items (JSON list or string) as readable text."""
+    if isinstance(items, list):
+        parts = []
+        for it in items:
+            if isinstance(it, dict):
+                name = str(it.get("name", "")).strip()
+                qty = it.get("qty", "")
+                parts.append(f"{name} x{qty}" if qty not in (None, "") else name)
+            else:
+                parts.append(str(it))
+        return ", ".join(p for p in parts if p)
+    return str(items or "")
+
+
+def save_order_legacy(sheet_id: str, phone: str, record: dict) -> str:
+    """Append a grocery/restaurant order in the ORIGINAL Daily Fresh column
+    layout so existing sheets + dashboard keep working:
+      [Order_ID, Phone, Items, Total, Address, Status, Timestamp]
+    Append-only — never rewrites the header row."""
+    ws = _worksheet(sheet_id, ORDERS_TAB)
+    order_id = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    items = _items_to_text(record.get("items", ""))
+    total = record.get("total", "")
+    if total in (None, ""):
+        total = record.get("subtotal", "0")
+    address = record.get("delivery_address", "")
+    ws.append_row([order_id, phone, items, str(total), address, "New", _now()],
+                  value_input_option="USER_ENTERED")
+    return order_id
+
+
 def save_record(sheet_id: str, fields: list[str], data: dict, id_prefix: str = "ORD") -> str:
     record_id = _gen_id(id_prefix)
     ws = _worksheet(sheet_id, ORDERS_TAB)
@@ -1019,10 +1053,14 @@ def _finalize(cfg: ClientConfig, phone_number_id: str, wa_id: str, sess: Session
     if "phone" in record and not record.get("phone"):
         record["phone"] = wa_id
 
-    fields = get_extraction_fields(cfg)
-    prefix = _ID_PREFIX.get(cfg.flow_family, "ORD")
     try:
-        record_id = save_record(cfg.sheet_id, fields, record, id_prefix=prefix)
+        if cfg.flow_family in (FLOW_ORDER, FLOW_RESTAURANT):
+            # Backward-compatible layout for existing grocery/restaurant sheets.
+            record_id = save_order_legacy(cfg.sheet_id, wa_id, record)
+        else:
+            fields = get_extraction_fields(cfg)
+            prefix = _ID_PREFIX.get(cfg.flow_family, "ORD")
+            record_id = save_record(cfg.sheet_id, fields, record, id_prefix=prefix)
     except Exception as exc:
         print(f"[finalize] save failed: {exc}")
         send_whatsapp(phone_number_id, wa_id,
