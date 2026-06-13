@@ -1,0 +1,36 @@
+{
+  "_comment": "Key each entry by the Meta WhatsApp phone_number_id of that client's number. Copy to clients.json (or set as the CLIENTS_JSON env var on Railway).",
+
+  "PUT_DAILYFRESH_PHONE_NUMBER_ID_HERE": {
+    "business_type": "grocery",
+    "business_name": "Daily Fresh Vegetables & Fruits L.L.C",
+    "working_hours": "8:00 AM to 12:00 PM",
+    "delivery_charge": 0,
+    "escalation_number": "971565893710",
+    "language": "both",
+    "sheet_id": "1CtvFUstEy5-vUZ_CmjQOz50Dkc8oWJQ-EkzafudJQ5s",
+    "currency": "AED",
+    "whatsapp_token": "OPTIONAL_per_client_token_else_uses_env_WHATSAPP_TOKEN"
+  },
+
+  "222222222222222": {
+    "business_type": "restaurant",
+    "business_name": "Shawarma House",
+    "working_hours": "12:00 PM - 2:00 AM",
+    "delivery_charge": 7,
+    "escalation_number": "971511111111",
+    "language": "arabic",
+    "sheet_id": "REPLACE_WITH_SHEET_ID",
+    "currency": "AED"
+  },
+
+  "333333333333333": {
+    "business_type": "hospital",
+    "business_name": "Al Noor Hospital",
+    "working_hours": "24/7",
+    "delivery_charge": 0,
+    "escalation_number": "971522222222",
+    "language": "english",
+    "sheet_id": "REPLACE_WITH_SHEET_ID"
+  }
+}
