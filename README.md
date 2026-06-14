@@ -1,4 +1,4 @@
-# AIShop — Dynamic Multi-Business WhatsApp AI Platform
+# AIBusinessAutomation — Dynamic Multi-Business WhatsApp AI Platform
 
 One Flask app serves many businesses (baqala, supermarket, pharmacy, restaurant,
 hospital/clinic, retail). Each WhatsApp number maps to one client; the agent

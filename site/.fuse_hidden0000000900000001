@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AIBusinessAutomation — WhatsApp AI Assistant for Any Business</title>
+<title>AIShop — WhatsApp AI Assistant for Any Business</title>
 <style>
   :root{--green:#1f9d55;--green-d:#177a42;--ink:#10241b;--muted:#5b6b63;--bg:#f6faf7;--line:#e3ece7;}
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -43,7 +43,7 @@
 </head>
 <body>
   <div class="nav">
-    <div class="brand">AIBusinessAutomation</div>
+    <div class="brand">AI<span>Shop</span></div>
     <div>
       <a href="admin.html">Admin</a>
       <a class="cta" href="app.html">Get started</a>
@@ -53,7 +53,7 @@
   <section class="hero">
     <span class="tag">WhatsApp AI · Arabic + English</span>
     <h1>Turn WhatsApp into your <em>24/7 AI assistant</em></h1>
-    <p>AIBusinessAutomation answers customers, takes orders, books appointments, and saves
+    <p>AIShop answers customers, takes orders, books appointments, and saves
        everything automatically — for grocery shops, pharmacies, restaurants,
        clinics, and more. No app to install. It just works on WhatsApp.</p>
     <div class="btns">
@@ -94,7 +94,7 @@
     <a class="btn btn-primary" href="app.html">Onboard your business →</a>
   </section>
 
-  <footer>© <span id="y"></span> AIBusinessAutomation · Powered by WhatsApp AI</footer>
+  <footer>© <span id="y"></span> AIShop · Powered by WhatsApp AI</footer>
   <script>document.getElementById("y").textContent=new Date().getFullYear();</script>
 </body>
 </html>

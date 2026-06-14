@@ -1,7 +1,7 @@
 """
 daily_fresh.py
 ==============
-AIShop — Dynamic Multi-Business WhatsApp AI Platform (single-file build).
+AIBusinessAutomation — Dynamic Multi-Business WhatsApp AI Platform (single-file build).
 
 Full dynamic rewrite: one Flask app serves many businesses (baqala, supermarket,
 pharmacy, restaurant/cafeteria, hospital/clinic, retail, custom). Each connected
@@ -752,8 +752,8 @@ def send_otp_email(email: str, code: str) -> bool:
     if not key:
         print(f"[otp] DEV MODE — code for {email}: {code}")
         return False
-    sender = os.environ.get("RESEND_FROM", "AIShop <onboarding@resend.dev>")
-    html = (f"<div style='font-family:sans-serif'><h2>Your AIShop code</h2>"
+    sender = os.environ.get("RESEND_FROM", "AIBusinessAutomation <onboarding@resend.dev>")
+    html = (f"<div style='font-family:sans-serif'><h2>Your AIBusinessAutomation code</h2>"
             f"<p>Enter this code to continue:</p>"
             f"<p style='font-size:30px;font-weight:bold;letter-spacing:4px'>{code}</p>"
             f"<p style='color:#888'>It expires in 10 minutes.</p></div>")
@@ -762,7 +762,7 @@ def send_otp_email(email: str, code: str) -> bool:
                           headers={"Authorization": f"Bearer {key}",
                                    "Content-Type": "application/json"},
                           json={"from": sender, "to": [email],
-                                "subject": "Your AIShop verification code", "html": html},
+                                "subject": "Your AIBusinessAutomation verification code", "html": html},
                           timeout=15)
         if r.status_code >= 300:
             print(f"[otp] Resend failed {r.status_code}: {r.text[:200]}")
@@ -1573,6 +1573,28 @@ def setup():
             "status": record["status"], "products_added": seeded}, 200
 
 
+@app.get("/my/client")
+def my_client():
+    """Return the signed-in user's business config (+ products as text) so the
+    setup wizard can be reopened pre-filled."""
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    user = get_user(email) or {}
+    cid = user.get("client_id", "")
+    if not cid:
+        return jsonify({})
+    doc = _get_db().clients.find_one({"client_id": cid}, {"_id": 0}) or {}
+    prods = get_products(cid, force=True)
+    lines = []
+    for p in prods:
+        nm = str(p.get("name", "")).strip()
+        pr = p.get("price", "")
+        lines.append(f"{nm} - {pr}" if pr not in (None, "") else nm)
+    doc["products"] = "\n".join(lines)
+    return jsonify(doc)
+
+
 @app.get("/my/orders")
 def my_orders():
     email = _current_email()
@@ -1617,12 +1639,12 @@ def health():
 
 @app.get("/")
 def index():
-    return jsonify({"service": "AIShop WhatsApp platform", "status": "running"})
+    return jsonify({"service": "AIBusinessAutomation WhatsApp platform", "status": "running"})
 
 
 if __name__ == "__main__":
     print("=" * 45)
-    print("  AIShop — Multi-Business WhatsApp AI Platform")
+    print("  AIBusinessAutomation — Multi-Business WhatsApp AI Platform")
     print(f"  Clients loaded: {len(all_phone_number_ids())}")
     print("  Arabic + English support")
     print("=" * 45)

@@ -1,4 +1,4 @@
-# MongoDB Setup (Atlas) — AIShop
+# MongoDB Setup (Atlas) — AIBusinessAutomation
 
 The platform now stores everything in MongoDB instead of Google Sheets:
 

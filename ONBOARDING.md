@@ -6,7 +6,7 @@ messages by `phone_number_id`. New clients persist across redeploys, no env edit
 
 ## 1. Create the master Clients sheet (one time)
 
-1. Create a new Google Sheet, e.g. "AIShop — Clients".
+1. Create a new Google Sheet, e.g. "AIBusinessAutomation — Clients".
 2. Share it (Editor) with the service-account email from `credentials.json`.
 3. Add a tab named **Clients** with this header row (row 1, columns A–M):
 

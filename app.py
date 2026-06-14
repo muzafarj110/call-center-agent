@@ -1,7 +1,7 @@
 """
 app.py
 ======
-Flask integration layer for the AIShop multi-business WhatsApp platform.
+Flask integration layer for the AIBusinessAutomation multi-business WhatsApp platform.
 
 Ties together:
   clients.py        -> which business owns the incoming WhatsApp number

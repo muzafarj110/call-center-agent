@@ -1,4 +1,4 @@
-# Deploying AIShop to Railway
+# Deploying AIBusinessAutomation to Railway
 
 I can't run the deploy for you (no access to your GitHub or Railway from here),
 but everything is configured. Run one of the two paths below from your Mac.

@@ -2,7 +2,7 @@
 business_config.py
 ===================
 Dynamic multi-business configuration + system-prompt generator for the
-AIShop WhatsApp AI platform.
+AIBusinessAutomation WhatsApp AI platform.
 
 Given the 8 onboarding fields a client provides, this module:
   1. Normalizes the business type (handles aliases/synonyms).

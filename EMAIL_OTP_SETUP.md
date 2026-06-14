@@ -27,7 +27,7 @@ emails by adding the Resend key below.
    | Variable | Value |
    |----------|-------|
    | `RESEND_API_KEY` | your Resend key |
-   | `RESEND_FROM` | e.g. `AIShop <noreply@yourdomain.com>` (or leave unset to use `onboarding@resend.dev`) |
+   | `RESEND_FROM` | e.g. `AIBusinessAutomation <noreply@yourdomain.com>` (or leave unset to use `onboarding@resend.dev`) |
 
 Once `RESEND_API_KEY` is set, the dev code stops appearing and real emails go out.
 
