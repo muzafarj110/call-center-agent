@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AIShop — Set up your assistant</title>
+<style>
+  :root{--green:#1f9d55;--green-d:#177a42;--ink:#10241b;--muted:#5b6b63;--bg:#f6faf7;--line:#e3ece7;--soft:#eef6f1;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);}
+  .top{background:#10241b;color:#fff;padding:14px 22px;display:flex;justify-content:space-between;align-items:center;}
+  .top .brand{font-weight:800;}
+  .top .who{font-size:13px;color:#c7d6cd;}
+  .top .who b{color:#fff;}
+  .top button{background:transparent;border:1px solid #34503f;color:#c7d6cd;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;}
+  .wrap{max-width:560px;margin:0 auto;padding:30px 18px 60px;}
+  .dash{max-width:920px;margin:0 auto;padding:24px 18px 60px;}
+  .card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:28px;}
+  h2{font-size:23px;margin-bottom:6px;}
+  .lead{color:var(--muted);font-size:15px;margin-bottom:20px;}
+  label{display:block;font-weight:700;font-size:14px;margin:14px 0 6px;}
+  .hint{font-weight:400;color:var(--muted);font-size:12px;}
+  input,select,textarea{width:100%;padding:13px;border:1px solid var(--line);border-radius:11px;font-size:15px;font-family:inherit;}
+  textarea{min-height:110px;resize:vertical;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);}
+  .big-btn{width:100%;padding:15px;border:none;border-radius:12px;background:var(--green);color:#fff;font-size:16px;font-weight:800;cursor:pointer;margin-top:18px;}
+  .big-btn:hover{background:var(--green-d);}
+  .big-btn:disabled{opacity:.55;}
+  .ghost{background:#fff;color:var(--ink);border:1px solid var(--line);font-weight:700;}
+  .rowbtns{display:flex;gap:10px;margin-top:18px;}
+  .rowbtns .big-btn{margin-top:0;}
+  .msg{margin-top:14px;font-size:14px;padding:12px;border-radius:10px;display:none;}
+  .ok{background:#e9f7ef;color:#177a42;}
+  .err{background:#fdecea;color:#b42318;}
+  /* stepper (train) */
+  .train{display:flex;align-items:center;gap:6px;margin-bottom:20px;flex-wrap:wrap;justify-content:center;}
+  .stop{width:26px;height:26px;border-radius:50%;background:var(--soft);color:var(--muted);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;border:2px solid var(--line);}
+  .stop.active{background:var(--green);color:#fff;border-color:var(--green);}
+  .stop.done{background:var(--green-d);color:#fff;border-color:var(--green-d);}
+  .rail{width:18px;height:3px;background:var(--line);border-radius:2px;}
+  .rail.done{background:var(--green);}
+  .types{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .type{border:2px solid var(--line);border-radius:12px;padding:14px;text-align:center;cursor:pointer;font-weight:700;font-size:14px;}
+  .type:hover{border-color:var(--green);}
+  .type.sel{border-color:var(--green);background:var(--soft);}
+  .type .e{font-size:24px;display:block;margin-bottom:4px;}
+  .otp{letter-spacing:10px;text-align:center;font-size:26px;font-weight:800;}
+  .review{background:var(--soft);border-radius:12px;padding:16px;font-size:14px;}
+  .review div{padding:5px 0;border-bottom:1px dashed #d5e6dc;}
+  .review div:last-child{border:none;}
+  .review b{color:var(--muted);font-weight:600;}
+  .devnote{background:#fff7e6;border:1px solid #ffe0a3;color:#8a6100;padding:10px;border-radius:10px;font-size:13px;margin-top:12px;}
+  /* dashboard */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px;}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center;}
+  .stat .n{font-size:30px;font-weight:800;}
+  .stat .l{font-size:13px;color:var(--muted);}
+  .tabs{display:flex;gap:8px;margin-bottom:14px;}
+  .tab{padding:9px 16px;border-radius:999px;border:1px solid var(--line);background:#fff;cursor:pointer;font-weight:700;font-size:14px;}
+  .tab.active{background:var(--green);color:#fff;border-color:var(--green);}
+  .order{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;}
+  .order .oid{font-weight:800;}
+  .order .meta{color:var(--muted);font-size:13px;margin-top:3px;}
+  .order .det{margin-top:6px;font-size:14px;}
+  .order select{width:auto;padding:6px 10px;font-size:13px;margin-top:8px;}
+  .empty{text-align:center;color:var(--muted);padding:30px;}
+  .hidden{display:none;}
+  @media(max-width:520px){.types{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:1fr 1fr 1fr;}}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">AI<span style="opacity:.6">Shop</span></div>
+    <div><span class="who" id="who"></span> <button id="logoutBtn" class="hidden" onclick="logout()">Log out</button></div>
+  </div>
+
+  <!-- ============ SIGN IN: EMAIL ============ -->
+  <div id="screen-email" class="wrap hidden">
+    <div class="card">
+      <h2>Welcome 👋</h2>
+      <p class="lead">Enter your email and we'll send you a 6-digit code to sign in. No password needed.</p>
+      <label>Email address</label>
+      <input id="email" type="email" placeholder="you@example.com" autocomplete="email" />
+      <button class="big-btn" id="sendBtn" onclick="requestOtp()">Send my code →</button>
+      <div id="emailMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <!-- ============ SIGN IN: OTP ============ -->
+  <div id="screen-otp" class="wrap hidden">
+    <div class="card">
+      <h2>Check your email 📧</h2>
+      <p class="lead">We sent a 6-digit code to <b id="otpEmail"></b>. Enter it below.</p>
+      <input id="code" class="otp" maxlength="6" inputmode="numeric" placeholder="••••••" />
+      <button class="big-btn" id="verifyBtn" onclick="verifyOtp()">Verify & continue →</button>
+      <div id="devNote" class="devnote hidden"></div>
+      <div id="otpMsg" class="msg"></div>
+      <button class="big-btn ghost" onclick="show('screen-email')">← Use a different email</button>
+    </div>
+  </div>
+
+  <!-- ============ WIZARD ============ -->
+  <div id="screen-wizard" class="wrap hidden">
+    <div class="card">
+      <div class="train" id="train"></div>
+      <div id="wizBody"></div>
+      <div class="rowbtns">
+        <button class="big-btn ghost" id="backBtn" onclick="wizBack()">← Back</button>
+        <button class="big-btn" id="nextBtn" onclick="wizNext()">Next →</button>
+      </div>
+      <div id="wizMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <!-- ============ DASHBOARD ============ -->
+  <div id="screen-dashboard" class="dash hidden">
+    <h2 id="dashTitle" style="margin-bottom:14px;">Your dashboard</h2>
+    <div class="stats">
+      <div class="stat"><div class="n" id="cPending">0</div><div class="l">Pending</div></div>
+      <div class="stat"><div class="n" id="cCurrent">0</div><div class="l">In progress</div></div>
+      <div class="stat"><div class="n" id="cHistory">0</div><div class="l">Completed</div></div>
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-t="pending" onclick="switchTab('pending')">Pending</div>
+      <div class="tab" data-t="current" onclick="switchTab('current')">In progress</div>
+      <div class="tab" data-t="history" onclick="switchTab('history')">History</div>
+      <div style="margin-left:auto;"><button class="tab" onclick="loadDashboard()">↻ Refresh</button></div>
+    </div>
+    <div id="orderList"></div>
+  </div>
+
+<script>
+  const API_BASE = "https://production-call-center.up.railway.app";
+  const TKEY = "aishop_token";
+  let DATA = {pending:[],current:[],history:[]};
+  let TAB = "pending";
+
+  function token(){ return localStorage.getItem(TKEY) || ""; }
+  function authH(extra){ return Object.assign({"Authorization":"Bearer "+token()}, extra||{}); }
+  function show(id){ ["screen-email","screen-otp","screen-wizard","screen-dashboard"].forEach(s=>document.getElementById(s).classList.add("hidden")); document.getElementById(id).classList.remove("hidden"); }
+  function flash(id,text,ok){ const m=document.getElementById(id); m.className="msg "+(ok?"ok":"err"); m.textContent=text; m.style.display="block"; }
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+
+  // ---------- AUTH ----------
+  async function requestOtp(){
+    const email=document.getElementById("email").value.trim();
+    if(!email||!email.includes("@")){ flash("emailMsg","Please enter a valid email.",false); return; }
+    const b=document.getElementById("sendBtn"); b.disabled=true; b.textContent="Sending…";
+    try{
+      const r=await fetch(API_BASE+"/auth/request-otp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+      const d=await r.json();
+      if(d.success){
+        document.getElementById("otpEmail").textContent=email;
+        window._email=email;
+        const dn=document.getElementById("devNote");
+        if(d.dev_code){ dn.textContent="Dev mode (email not configured yet): your code is "+d.dev_code; dn.classList.remove("hidden"); }
+        else dn.classList.add("hidden");
+        show("screen-otp");
+      } else flash("emailMsg",d.error||"Could not send code.",false);
+    }catch(e){ flash("emailMsg","Network error: "+e.message,false); }
+    b.disabled=false; b.textContent="Send my code →";
+  }
+
+  async function verifyOtp(){
+    const code=document.getElementById("code").value.trim();
+    const b=document.getElementById("verifyBtn"); b.disabled=true; b.textContent="Checking…";
+    try{
+      const r=await fetch(API_BASE+"/auth/verify-otp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:window._email,code})});
+      const d=await r.json();
+      if(d.success){
+        localStorage.setItem(TKEY,d.token);
+        await route();
+      } else flash("otpMsg",d.error||"Wrong code.",false);
+    }catch(e){ flash("otpMsg","Network error: "+e.message,false); }
+    b.disabled=false; b.textContent="Verify & continue →";
+  }
+
+  function logout(){ localStorage.removeItem(TKEY); document.getElementById("logoutBtn").classList.add("hidden"); document.getElementById("who").textContent=""; show("screen-email"); }
+
+  async function route(){
+    if(!token()){ show("screen-email"); return; }
+    try{
+      const r=await fetch(API_BASE+"/auth/me",{headers:authH()});
+      if(r.status===401){ logout(); return; }
+      const me=await r.json();
+      document.getElementById("who").innerHTML="Signed in as <b>"+esc(me.email)+"</b>";
+      document.getElementById("logoutBtn").classList.remove("hidden");
+      if(me.setup_complete){ document.getElementById("dashTitle").textContent=me.business_name||"Your dashboard"; show("screen-dashboard"); loadDashboard(); }
+      else { startWizard(); }
+    }catch(e){ show("screen-email"); }
+  }
+
+  // ---------- WIZARD ----------
+  const W = {business_type:"",business_name:"",products:"",working_hours:"",language:"both",delivery_charge:"0",escalation_number:"",phone_number_id:""};
+  let step=0;
+  const STEPS=[
+    {t:"What kind of business?", html:()=>`
+      <div class="types" id="typeGrid">
+        ${[["clinic","🩺","Clinic"],["hospital","🏥","Hospital"],["pharmacy","💊","Pharmacy"],["baqala","🛒","Grocery / Baqala"],["supermarket","🏬","Supermarket"],["restaurant","🍽️","Restaurant"],["cafeteria","☕","Cafeteria"],["retail","🛍️","Retail shop"]].map(
+          ([v,e,l])=>`<div class="type ${W.business_type===v?'sel':''}" data-v="${v}" onclick="pickType('${v}')"><span class="e">${e}</span>${l}</div>`).join("")}
+      </div>`, valid:()=>W.business_type?"":"Please pick a business type."},
+    {t:"What's your business called?", html:()=>`
+      <label>Business name</label>
+      <input id="f_name" value="${esc(W.business_name)}" placeholder="e.g. Smile Dental Clinic" oninput="W.business_name=this.value" />`,
+      valid:()=>document.getElementById("f_name").value.trim()?"":"Please enter your business name."},
+    {t:"What do you offer?", html:()=>`
+      <label>Services / products <span class="hint">one per line. "Name - price" (price optional).</span></label>
+      <textarea id="f_products" placeholder="General Medicine\nDental - 150\nDermatology - 200" oninput="W.products=this.value">${esc(W.products)}</textarea>`,
+      valid:()=>"" },
+    {t:"Hours & language", html:()=>`
+      <label>Working hours</label>
+      <input id="f_hours" value="${esc(W.working_hours)}" placeholder="9 AM – 9 PM, Sat–Thu" oninput="W.working_hours=this.value" />
+      <label>Reply language</label>
+      <select id="f_lang" onchange="W.language=this.value">
+        <option value="both" ${W.language==='both'?'selected':''}>Arabic + English</option>
+        <option value="arabic" ${W.language==='arabic'?'selected':''}>Arabic only</option>
+        <option value="english" ${W.language==='english'?'selected':''}>English only</option>
+      </select>`, valid:()=>"" },
+    {t:"Delivery & manager", html:()=>`
+      <label>Delivery charge <span class="hint">(0 if none / not applicable)</span></label>
+      <input id="f_del" type="number" step="0.01" value="${esc(W.delivery_charge)}" oninput="W.delivery_charge=this.value" />
+      <label>Manager / escalation number <span class="hint">with country code</span></label>
+      <input id="f_esc" value="${esc(W.escalation_number)}" placeholder="9715xxxxxxxx" oninput="W.escalation_number=this.value" />`,
+      valid:()=>"" },
+    {t:"Connect WhatsApp", html:()=>`
+      <p class="lead">If your WhatsApp Business number is connected in Meta, paste its <b>phone number ID</b> to go live now. No number yet? Leave blank — you'll be saved and can add it later.</p>
+      <label>WhatsApp phone number ID <span class="hint">(optional)</span></label>
+      <input id="f_pnid" value="${esc(W.phone_number_id)}" placeholder="e.g. 123456789012345" oninput="W.phone_number_id=this.value" />`,
+      valid:()=>"" },
+    {t:"Review & finish", html:()=>`
+      <div class="review">
+        <div><b>Type:</b> ${esc(W.business_type)}</div>
+        <div><b>Name:</b> ${esc(W.business_name)}</div>
+        <div><b>Hours:</b> ${esc(W.working_hours||"—")}</div>
+        <div><b>Language:</b> ${esc(W.language)}</div>
+        <div><b>Delivery:</b> ${esc(W.delivery_charge||"0")}</div>
+        <div><b>Manager:</b> ${esc(W.escalation_number||"—")}</div>
+        <div><b>WhatsApp:</b> ${W.phone_number_id?'Connected':'Add later (pending)'}</div>
+        <div><b>Items:</b> ${esc((W.products||"").split("\\n").filter(x=>x.trim()).length)} listed</div>
+      </div>`, valid:()=>"", last:true },
+  ];
+
+  function pickType(v){ W.business_type=v; document.querySelectorAll("#typeGrid .type").forEach(el=>el.classList.toggle("sel",el.dataset.v===v)); }
+  function startWizard(){ step=0; show("screen-wizard"); renderWizard(); }
+  function renderWizard(){
+    const s=STEPS[step];
+    // train
+    document.getElementById("train").innerHTML = STEPS.map((_,i)=>{
+      const cls = i<step?"done":(i===step?"active":"");
+      const dot = `<div class="stop ${cls}">${i<step?'✓':i+1}</div>`;
+      const rail = i<STEPS.length-1?`<div class="rail ${i<step?'done':''}"></div>`:"";
+      return dot+rail;
+    }).join("");
+    document.getElementById("wizBody").innerHTML = `<h2>${s.t}</h2>`+s.html();
+    document.getElementById("backBtn").style.visibility = step===0?"hidden":"visible";
+    document.getElementById("nextBtn").textContent = s.last?"Finish ✓":"Next →";
+    document.getElementById("wizMsg").style.display="none";
+  }
+  function wizBack(){ if(step>0){ step--; renderWizard(); } }
+  function wizNext(){
+    const err=STEPS[step].valid();
+    if(err){ flash("wizMsg",err,false); return; }
+    if(STEPS[step].last){ submitSetup(); return; }
+    step++; renderWizard();
+  }
+  async function submitSetup(){
+    const b=document.getElementById("nextBtn"); b.disabled=true; b.textContent="Saving…";
+    try{
+      const r=await fetch(API_BASE+"/setup",{method:"POST",headers:authH({"Content-Type":"application/json"}),body:JSON.stringify(W)});
+      const d=await r.json();
+      if(d.success){ await route(); }
+      else flash("wizMsg",d.error||"Could not save.",false);
+    }catch(e){ flash("wizMsg","Network error: "+e.message,false); }
+    b.disabled=false; b.textContent="Finish ✓";
+  }
+
+  // ---------- DASHBOARD ----------
+  async function loadDashboard(){
+    try{
+      const r=await fetch(API_BASE+"/my/orders",{headers:authH()});
+      if(r.status===401){ logout(); return; }
+      DATA=await r.json();
+      document.getElementById("cPending").textContent=(DATA.pending||[]).length;
+      document.getElementById("cCurrent").textContent=(DATA.current||[]).length;
+      document.getElementById("cHistory").textContent=(DATA.history||[]).length;
+      renderOrders();
+    }catch(e){ document.getElementById("orderList").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'; }
+  }
+  function switchTab(t){ TAB=t; document.querySelectorAll(".tab[data-t]").forEach(el=>el.classList.toggle("active",el.dataset.t===t)); renderOrders(); }
+  function renderOrders(){
+    const list=DATA[TAB]||[];
+    const el=document.getElementById("orderList");
+    if(!list.length){ el.innerHTML='<div class="empty">Nothing here yet.</div>'; return; }
+    el.innerHTML=list.map(o=>{
+      const det = o.items||o.specialty||o.interest||"";
+      const cust = o.phone||o.patient_name||o.customer_name||"";
+      const extra = [o.address, o.appointment_date, o.appointment_time].filter(Boolean).map(esc).join(" · ");
+      return `<div class="order">
+        <div class="oid">${esc(o.order_id||"")} <span style="font-weight:400;color:var(--muted)">· ${esc(o.created_at||"")}</span></div>
+        <div class="meta">${esc(cust)}</div>
+        <div class="det">${esc(det)}${o.total?' — <b>'+esc(o.total)+'</b>':''}</div>
+        ${extra?'<div class="meta">'+extra+'</div>':''}
+        <select onchange="setStatus('${esc(o.order_id)}',this.value)">
+          <option value="">Status: ${esc(o.status||'New')} ▾</option>
+          <option>New</option><option>Preparing</option><option>Out for delivery</option>
+          <option>Delivered</option><option>Completed</option><option>Cancelled</option>
+        </select></div>`;
+    }).join("");
+  }
+  async function setStatus(orderId,status){
+    if(!status) return;
+    await fetch(API_BASE+"/my/order-status",{method:"POST",headers:authH({"Content-Type":"application/json"}),body:JSON.stringify({order_id:orderId,status})});
+    loadDashboard();
+  }
+
+  document.getElementById("code").addEventListener("keydown",e=>{ if(e.key==="Enter") verifyOtp(); });
+  document.getElementById("email").addEventListener("keydown",e=>{ if(e.key==="Enter") requestOtp(); });
+  route();  // entry point
+</script>
+</body>
+</html>

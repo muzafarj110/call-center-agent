@@ -37,6 +37,7 @@ import json
 import os
 import random
 import re
+import secrets
 import string
 import threading
 import time
@@ -716,6 +717,98 @@ def _norm_phone(phone: str) -> str:
     return "".join(ch for ch in str(phone) if ch.isdigit())[-12:]
 
 
+# ---- accounts: email OTP + sessions ---------------------------------------
+OTP_TTL = 600  # 10 minutes
+SESSION_DAYS = 30
+
+
+def _norm_email(email: str) -> str:
+    return str(email or "").strip().lower()
+
+
+def create_otp(email: str) -> str:
+    code = f"{random.randint(0, 999999):06d}"
+    _get_db().otps.update_one(
+        {"email": email},
+        {"$set": {"email": email, "code": code, "expires_at": time.time() + OTP_TTL}},
+        upsert=True)
+    return code
+
+
+def verify_otp(email: str, code: str) -> bool:
+    doc = _get_db().otps.find_one({"email": email})
+    if not doc or str(doc.get("code")) != str(code).strip():
+        return False
+    if doc.get("expires_at", 0) < time.time():
+        return False
+    _get_db().otps.delete_one({"email": email})
+    return True
+
+
+def send_otp_email(email: str, code: str) -> bool:
+    """Send the code via Resend. Returns True if actually emailed.
+    If RESEND_API_KEY is not set, logs it (dev mode) and returns False."""
+    key = os.environ.get("RESEND_API_KEY")
+    if not key:
+        print(f"[otp] DEV MODE — code for {email}: {code}")
+        return False
+    sender = os.environ.get("RESEND_FROM", "AIShop <onboarding@resend.dev>")
+    html = (f"<div style='font-family:sans-serif'><h2>Your AIShop code</h2>"
+            f"<p>Enter this code to continue:</p>"
+            f"<p style='font-size:30px;font-weight:bold;letter-spacing:4px'>{code}</p>"
+            f"<p style='color:#888'>It expires in 10 minutes.</p></div>")
+    try:
+        r = requests.post("https://api.resend.com/emails",
+                          headers={"Authorization": f"Bearer {key}",
+                                   "Content-Type": "application/json"},
+                          json={"from": sender, "to": [email],
+                                "subject": "Your AIShop verification code", "html": html},
+                          timeout=15)
+        if r.status_code >= 300:
+            print(f"[otp] Resend failed {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except requests.RequestException as exc:
+        print(f"[otp] Resend error: {exc}")
+        return False
+
+
+def create_session(email: str) -> str:
+    token = secrets.token_urlsafe(24)
+    _get_db().sessions.update_one(
+        {"email": email},
+        {"$set": {"email": email, "token": token, "created_at": _now()}},
+        upsert=True)
+    return token
+
+
+def email_for_token(token: str) -> Optional[str]:
+    if not token:
+        return None
+    doc = _get_db().sessions.find_one({"token": token})
+    return doc.get("email") if doc else None
+
+
+def ensure_user(email: str) -> dict:
+    db = _get_db()
+    db.users.update_one(
+        {"email": email},
+        {"$setOnInsert": {"email": email, "client_id": "",
+                          "setup_complete": False, "created_at": _now()}},
+        upsert=True)
+    return db.users.find_one({"email": email}, {"_id": 0})
+
+
+def get_user(email: str) -> Optional[dict]:
+    return _get_db().users.find_one({"email": email}, {"_id": 0})
+
+
+def set_user_client(email: str, client_id: str) -> None:
+    _get_db().users.update_one(
+        {"email": email},
+        {"$set": {"client_id": client_id, "setup_complete": True}})
+
+
 # ===========================================================================
 # 7. CLAUDE CALLS (main reply + structured extraction)
 # ===========================================================================
@@ -1380,6 +1473,141 @@ def reload_clients_route():
     if secret and request.headers.get("X-Admin-Secret") != secret:
         abort(403)
     return jsonify({"reloaded": reload_clients()})
+
+
+# ---------------------------------------------------------------------------
+# Account auth (email OTP) + setup wizard + user dashboard
+# ---------------------------------------------------------------------------
+def _current_email() -> Optional[str]:
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    token = token or request.args.get("token", "") or \
+        ((request.get_json(silent=True) or {}).get("token", "") if request.method != "GET" else "")
+    return email_for_token(token)
+
+
+@app.post("/auth/request-otp")
+def auth_request_otp():
+    if not MONGODB_URI:
+        return {"success": False, "error": "Server not configured."}, 400
+    data = request.get_json(silent=True) or {}
+    email = _norm_email(data.get("email"))
+    if not email or "@" not in email:
+        return {"success": False, "error": "Valid email required."}, 400
+    code = create_otp(email)
+    emailed = send_otp_email(email, code)
+    resp = {"success": True, "sent": emailed}
+    if not emailed and not os.environ.get("RESEND_API_KEY"):
+        resp["dev_code"] = code  # dev mode only (no email provider configured)
+        resp["dev"] = True
+    return resp, 200
+
+
+@app.post("/auth/verify-otp")
+def auth_verify_otp():
+    data = request.get_json(silent=True) or {}
+    email = _norm_email(data.get("email"))
+    code = str(data.get("code", "")).strip()
+    if not verify_otp(email, code):
+        return {"success": False, "error": "Invalid or expired code."}, 401
+    user = ensure_user(email)
+    token = create_session(email)
+    return {"success": True, "token": token, "email": email,
+            "setup_complete": bool(user.get("setup_complete")),
+            "client_id": user.get("client_id", "")}, 200
+
+
+@app.get("/auth/me")
+def auth_me():
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    user = get_user(email) or {}
+    business_name = ""
+    cid = user.get("client_id", "")
+    if cid:
+        doc = _get_db().clients.find_one({"client_id": cid}, {"_id": 0})
+        business_name = (doc or {}).get("business_name", "")
+    return jsonify({"email": email, "setup_complete": bool(user.get("setup_complete")),
+                    "client_id": cid, "business_name": business_name})
+
+
+@app.post("/setup")
+def setup():
+    """Wizard submit for a signed-in user. Creates/updates their client +
+    products, and marks setup complete."""
+    email = _current_email()
+    if not email:
+        return {"success": False, "error": "Not signed in"}, 401
+    data = request.get_json(silent=True) or {}
+    business_name = sanitize_input(data.get("business_name", "")).strip()
+    business_type = sanitize_input(data.get("business_type", "")).strip()
+    if not business_name or not business_type:
+        return {"success": False, "error": "Business name and type are required"}, 400
+
+    user = get_user(email) or {}
+    existing_cid = user.get("client_id", "")
+    pnid = sanitize_input(str(data.get("phone_number_id", ""))).strip()
+    record = {
+        "business_name": business_name, "business_type": business_type,
+        "working_hours": sanitize_input(data.get("working_hours", "")),
+        "delivery_charge": _coerce_float(data.get("delivery_charge", 0)),
+        "escalation_number": sanitize_input(str(data.get("escalation_number", ""))),
+        "language": normalize_language(data.get("language", "both")),
+        "currency": sanitize_input(data.get("currency", "AED")).strip() or "AED",
+        "phone_number_id": pnid, "whatsapp_token": data.get("whatsapp_token", ""),
+        "owner_email": email, "status": "active" if pnid else "pending",
+        "created_at": _now(),
+    }
+    if existing_cid:
+        record["client_id"] = existing_cid
+    try:
+        action, client_id = upsert_client_db(record)
+        seeded = seed_products(client_id, data.get("products", "")) if data.get("products") else 0
+        set_user_client(email, client_id)
+    except Exception as e:
+        print(f"[setup] error: {e}")
+        return {"success": False, "error": str(e)}, 500
+    reload_clients()
+    return {"success": True, "client_id": client_id, "action": action,
+            "status": record["status"], "products_added": seeded}, 200
+
+
+@app.get("/my/orders")
+def my_orders():
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    user = get_user(email) or {}
+    cid = user.get("client_id", "")
+    if not cid:
+        return jsonify({"pending": [], "current": [], "history": [], "counts": {}})
+    orders = list_orders(cid, limit=500)
+    pending, current, history = [], [], []
+    for o in orders:
+        st = str(o.get("status", "New")).strip().lower()
+        if st in ("new", "pending", ""):
+            pending.append(o)
+        elif st in ("completed", "delivered", "cancelled", "done"):
+            history.append(o)
+        else:
+            current.append(o)
+    return jsonify({"pending": pending, "current": current, "history": history,
+                    "counts": {"pending": len(pending), "current": len(current),
+                               "history": len(history), "total": len(orders)}})
+
+
+@app.post("/my/order-status")
+def my_order_status():
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    user = get_user(email) or {}
+    cid = user.get("client_id", "")
+    data = request.get_json(silent=True) or {}
+    if not cid or not update_order_status(data.get("order_id", ""), data.get("status", ""), cid):
+        return {"success": False, "error": "Order not found"}, 404
+    return {"success": True}, 200
 
 
 @app.get("/health")
