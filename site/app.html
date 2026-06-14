@@ -125,7 +125,11 @@
 
   <!-- ============ DASHBOARD ============ -->
   <div id="screen-dashboard" class="dash hidden">
-    <h2 id="dashTitle" style="margin-bottom:14px;">Your dashboard</h2>
+    <h2 id="dashTitle" style="margin-bottom:10px;">Your dashboard</h2>
+    <div id="waBanner" style="display:none;background:#eef6f1;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <span id="waBannerText"></span>
+      <button class="big-btn" style="width:auto;margin:0;padding:10px 16px;" onclick="connectZernio()">🔗 Connect WhatsApp</button>
+    </div>
     <div class="stats">
       <div class="stat"><div class="n" id="cPending">0</div><div class="l">Pending</div></div>
       <div class="stat"><div class="n" id="cCurrent">0</div><div class="l">In progress</div></div>
@@ -301,8 +305,30 @@
     b.disabled=false; b.textContent="Finish ✓";
   }
 
+  // ---------- WHATSAPP CONNECT (Zernio) ----------
+  async function connectZernio(){
+    try{
+      const r=await fetch(API_BASE+"/connect/whatsapp/start",{headers:authH()});
+      const d=await r.json();
+      if(d.authUrl){ window.location.href=d.authUrl; }
+      else alert(d.error||"WhatsApp connection isn't available yet. Ask the AIBusinessAutomation admin to enable Zernio.");
+    }catch(e){ alert("Network error: "+e.message); }
+  }
+  async function refreshWaBanner(){
+    try{
+      const r=await fetch(API_BASE+"/my/client",{headers:authH()});
+      const c=await r.json();
+      const b=document.getElementById("waBanner"), t=document.getElementById("waBannerText");
+      const connected = (c.transport==="zernio" && c.zernio_account_id) || c.phone_number_id;
+      if(connected){ t.textContent="✅ WhatsApp connected"+(c.phone?(" ("+c.phone+")"):"")+"."; b.querySelector("button").textContent="Reconnect"; }
+      else { t.textContent="⚠️ WhatsApp not connected yet — connect it to go live."; b.querySelector("button").textContent="🔗 Connect WhatsApp"; }
+      b.style.display="flex";
+    }catch(e){}
+  }
+
   // ---------- DASHBOARD ----------
   async function loadDashboard(){
+    refreshWaBanner();
     try{
       const r=await fetch(API_BASE+"/my/orders",{headers:authH()});
       if(r.status===401){ logout(); return; }
@@ -342,6 +368,10 @@
 
   document.getElementById("code").addEventListener("keydown",e=>{ if(e.key==="Enter") verifyOtp(); });
   document.getElementById("email").addEventListener("keydown",e=>{ if(e.key==="Enter") requestOtp(); });
+  // Returning from the Zernio WhatsApp connect flow?
+  const _wa = new URLSearchParams(location.search).get("whatsapp");
+  if(_wa){ setTimeout(()=>alert(_wa==="connected" ? "✅ WhatsApp connected! Your assistant is live." : "WhatsApp connection didn't complete. Please try again."), 400);
+    history.replaceState({}, "", location.pathname); }
   route();  // entry point
 </script>
 </body>

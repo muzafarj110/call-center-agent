@@ -33,6 +33,8 @@ and run a full order end-to-end before deploying to production.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import random
@@ -41,6 +43,7 @@ import secrets
 import string
 import threading
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -166,6 +169,9 @@ class ClientConfig:
     client_id: str = ""        # MongoDB data scope key
     sheet_id: str = ""         # legacy (unused with MongoDB)
     currency: str = "AED"
+    transport: str = "meta"            # "meta" (Cloud API) or "zernio"
+    phone_number_id: str = ""          # Meta WhatsApp number id (transport=meta)
+    zernio_account_id: str = ""        # Zernio connected-account id (transport=zernio)
 
     flow_family: str = field(default="", init=False)
     canonical_type: str = field(default="", init=False)
@@ -191,6 +197,9 @@ class ClientConfig:
             client_id=data.get("client_id", ""),
             sheet_id=data.get("sheet_id", ""),
             currency=data.get("currency", "AED"),
+            transport=(data.get("transport") or "meta"),
+            phone_number_id=data.get("phone_number_id", ""),
+            zernio_account_id=data.get("zernio_account_id", ""),
         )
 
     @property
@@ -407,11 +416,17 @@ def _read_clients_db() -> dict:
     Clients without a phone_number_id (or not active) are skipped (not routable)."""
     raw = {}
     for c in _get_db().clients.find({}):
-        pnid = str(c.get("phone_number_id", "")).strip()
         status = str(c.get("status", "active")).strip().lower()
-        if not pnid or status in ("disabled", "paused", "pending"):
+        if status in ("disabled", "paused", "pending"):
             continue
-        raw[pnid] = {
+        transport = (c.get("transport") or "meta").strip().lower()
+        pnid = str(c.get("phone_number_id", "")).strip()
+        zacct = str(c.get("zernio_account_id", "")).strip()
+        # Routing key = whatever the inbound webhook will carry for this client.
+        key = zacct if transport == "zernio" else pnid
+        if not key:
+            continue  # not connected yet -> not routable
+        raw[key] = {
             "business_type": c.get("business_type", ""),
             "business_name": c.get("business_name", ""),
             "working_hours": c.get("working_hours", ""),
@@ -421,6 +436,9 @@ def _read_clients_db() -> dict:
             "client_id": c.get("client_id", ""),
             "currency": c.get("currency", "AED") or "AED",
             "whatsapp_token": c.get("whatsapp_token", ""),
+            "transport": transport,
+            "phone_number_id": pnid,
+            "zernio_account_id": zacct,
         }
     return raw
 
@@ -1047,8 +1065,17 @@ def _rate_limited(key: str) -> bool:
         return False
 
 
-# --- WhatsApp send ---------------------------------------------------------
+# --- Transports: Meta Cloud API + Zernio -----------------------------------
+ZERNIO_API_KEY = os.environ.get("ZERNIO_API_KEY", "")
+ZERNIO_PROFILE_ID = os.environ.get("ZERNIO_PROFILE_ID", "")
+ZERNIO_BASE = os.environ.get("ZERNIO_BASE", "https://zernio.com/api")
+ZERNIO_WEBHOOK_SECRET = os.environ.get("ZERNIO_WEBHOOK_SECRET", "")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")  # this backend's public URL
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "")        # the frontend (Netlify) URL
+
+
 def send_whatsapp(phone_number_id: str, to: str, text: str) -> None:
+    """Meta WhatsApp Cloud API send."""
     token = get_whatsapp_token(phone_number_id)
     pnid = phone_number_id or DEFAULT_PHONE_ID
     if not token or not pnid:
@@ -1066,6 +1093,37 @@ def send_whatsapp(phone_number_id: str, to: str, text: str) -> None:
         print(f"[wa] send error: {exc}")
 
 
+def zernio_send(account_id: str, to: str, text: str) -> None:
+    """Send a WhatsApp text via Zernio inbox API (free-form, 24h window)."""
+    if not ZERNIO_API_KEY:
+        print("[zernio] ZERNIO_API_KEY not set; cannot send")
+        return
+    url = f"{ZERNIO_BASE}/v1/messages"
+    payload = {
+        "profileId": ZERNIO_PROFILE_ID,
+        "accountId": account_id,
+        "platform": "whatsapp",
+        "to": to,
+        "text": text[:4096],
+    }
+    try:
+        r = requests.post(url, json=payload,
+                          headers={"Authorization": f"Bearer {ZERNIO_API_KEY}",
+                                   "Content-Type": "application/json"}, timeout=15)
+        if r.status_code >= 300:
+            print(f"[zernio] send failed {r.status_code}: {r.text[:300]}")
+    except requests.RequestException as exc:
+        print(f"[zernio] send error: {exc}")
+
+
+def deliver(cfg: ClientConfig, to: str, text: str) -> None:
+    """Send a message to a customer using the client's configured transport."""
+    if cfg.transport == "zernio":
+        zernio_send(cfg.zernio_account_id, to, text)
+    else:
+        send_whatsapp(cfg.phone_number_id or DEFAULT_PHONE_ID, to, text)
+
+
 # --- webhook verify (GET) --------------------------------------------------
 @app.get("/webhook")
 def verify():
@@ -1081,33 +1139,35 @@ def verify():
 # --- webhook receive (POST) ------------------------------------------------
 @app.post("/webhook")
 def webhook():
+    """Meta WhatsApp Cloud API inbound webhook (transport=meta clients)."""
     data = request.get_json(silent=True) or {}
     try:
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
                 value = change.get("value", {})
                 phone_number_id = value.get("metadata", {}).get("phone_number_id", "")
+                cfg = get_client(phone_number_id)
+                if not cfg:
+                    continue
                 for msg in value.get("messages", []):
+                    sender = msg.get("from", "")
                     if msg.get("type") != "text":
-                        _maybe_handle_non_text(phone_number_id, msg)
+                        _handle_non_text(cfg, phone_number_id, sender)
                         continue
-                    _handle_text(phone_number_id, msg)
+                    text = (msg.get("text", {}) or {}).get("body", "")
+                    _handle_text(cfg, phone_number_id, sender, text)
     except Exception as exc:
         print(f"[webhook] error: {exc}")
     return "OK", 200
 
 
-def _maybe_handle_non_text(phone_number_id: str, msg: dict) -> None:
-    cfg = get_client(phone_number_id)
-    if not cfg:
-        return
-    wa_id = msg.get("from", "")
-    if not wa_id or _rate_limited(f"{phone_number_id}:{wa_id}"):
+def _handle_non_text(cfg: ClientConfig, channel_key: str, sender: str) -> None:
+    if not sender or _rate_limited(f"{channel_key}:{sender}"):
         return
     note = ("Please send your request as a text message and I'll help right away."
             if cfg.language != "arabic"
             else "الرجاء إرسال طلبك كرسالة نصية وسأساعدك فوراً.")
-    send_whatsapp(phone_number_id, wa_id, note)
+    deliver(cfg, sender, note)
 
 
 def _welcome(cfg: ClientConfig) -> str:
@@ -1119,31 +1179,26 @@ def _welcome(cfg: ClientConfig) -> str:
             f"أهلاً وسهلاً في {cfg.business_name}! كيف أقدر أساعدك اليوم؟")
 
 
-def _handle_text(phone_number_id: str, msg: dict) -> None:
-    cfg = get_client(phone_number_id)
-    if not cfg:
-        print(f"[webhook] no client for phone_number_id={phone_number_id}")
-        return
-
-    wa_id = msg.get("from", "")
-    body = sanitize_input((msg.get("text", {}) or {}).get("body", "")).strip()
+def _handle_text(cfg: ClientConfig, channel_key: str, wa_id: str, raw_text: str) -> None:
+    """Transport-agnostic message handler (used by Meta + Zernio webhooks)."""
+    body = sanitize_input(raw_text or "").strip()
     if not wa_id or not body:
         return
 
-    if _rate_limited(f"{phone_number_id}:{wa_id}"):
-        send_whatsapp(phone_number_id, wa_id,
-                      "You're sending messages too fast — one moment please."
-                      if cfg.language != "arabic"
-                      else "أنت ترسل الرسائل بسرعة كبيرة — لحظة من فضلك.")
+    if _rate_limited(f"{channel_key}:{wa_id}"):
+        deliver(cfg, wa_id,
+                "You're sending messages too fast — one moment please."
+                if cfg.language != "arabic"
+                else "أنت ترسل الرسائل بسرعة كبيرة — لحظة من فضلك.")
         return
 
     # /start reset
     if body.lower() in ["/start", "/ابدأ", "/restart"]:
-        reset_session(phone_number_id, wa_id)
-        send_whatsapp(phone_number_id, wa_id, _welcome(cfg))
+        reset_session(channel_key, wa_id)
+        deliver(cfg, wa_id, _welcome(cfg))
         return
 
-    sess = get_session(phone_number_id, wa_id)
+    sess = get_session(channel_key, wa_id)
 
     if not sess.history:
         existing = get_customer(cfg.client_id, wa_id)
@@ -1155,13 +1210,13 @@ def _handle_text(phone_number_id: str, msg: dict) -> None:
 
     # 1) Escalation
     if wants_human(body):
-        _escalate_customer(cfg, phone_number_id, wa_id, body)
+        _escalate_customer(cfg, wa_id, body)
         return
 
     # 2) Pending confirmation -> Python owns YES/NO
     if sess.pending_confirmation:
         if is_affirmative(body):
-            _finalize(cfg, phone_number_id, wa_id, sess)
+            _finalize(cfg, wa_id, sess)
             return
         if is_negative(body):
             sess.pending_confirmation = False  # let AI help them edit
@@ -1170,7 +1225,7 @@ def _handle_text(phone_number_id: str, msg: dict) -> None:
                    if cfg.language != "arabic"
                    else "هل أؤكد الطلب؟ اكتب نعم للتأكيد أو لا للتعديل.")
             sess.add("assistant", ask)
-            send_whatsapp(phone_number_id, wa_id, ask)
+            deliver(cfg, wa_id, ask)
             return
 
     # 3) Normal turn — live data + Claude
@@ -1199,10 +1254,10 @@ def _handle_text(phone_number_id: str, msg: dict) -> None:
         sess.saved_address = body
         upsert_customer(cfg.client_id, wa_id, name=sess.customer_name, address=body)
 
-    send_whatsapp(phone_number_id, wa_id, reply_text)
+    deliver(cfg, wa_id, reply_text)
 
 
-def _finalize(cfg: ClientConfig, phone_number_id: str, wa_id: str, sess: Session) -> None:
+def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
     try:
         record = extract_record(cfg, sess.history)
     except Exception as exc:
@@ -1222,10 +1277,10 @@ def _finalize(cfg: ClientConfig, phone_number_id: str, wa_id: str, sess: Session
             record_id = save_record(cfg.client_id, fields, record, id_prefix=prefix)
     except Exception as exc:
         print(f"[finalize] save failed: {exc}")
-        send_whatsapp(phone_number_id, wa_id,
-                      "I couldn't save that just now — our team has been notified."
-                      if cfg.language != "arabic"
-                      else "تعذّر حفظ الطلب الآن — تم إبلاغ فريقنا.")
+        deliver(cfg, wa_id,
+                "I couldn't save that just now — our team has been notified."
+                if cfg.language != "arabic"
+                else "تعذّر حفظ الطلب الآن — تم إبلاغ فريقنا.")
         return
 
     name = record.get("customer_name") or record.get("patient_name") or sess.customer_name
@@ -1252,19 +1307,19 @@ def _finalize(cfg: ClientConfig, phone_number_id: str, wa_id: str, sess: Session
 
     sess.add("assistant", msg)
     sess.pending_confirmation = False
-    sess.history = []  # fresh cart next time; customer memory persists in Sheet
-    send_whatsapp(phone_number_id, wa_id, msg)
+    sess.history = []  # fresh cart next time; customer memory persists in DB
+    deliver(cfg, wa_id, msg)
 
 
-def _escalate_customer(cfg: ClientConfig, phone_number_id: str, wa_id: str, body: str) -> None:
+def _escalate_customer(cfg: ClientConfig, wa_id: str, body: str) -> None:
     customer_msg = ("A manager will follow up with you shortly. Thank you for your patience."
                     if cfg.language != "arabic"
                     else "سيتواصل معك المدير قريباً. شكراً لصبرك.")
-    send_whatsapp(phone_number_id, wa_id, customer_msg)
+    deliver(cfg, wa_id, customer_msg)
     if cfg.escalation_number:
         notify = (f"⚠️ ESCALATION — {cfg.business_name}\n"
                   f"Customer: {wa_id}\nMessage: {body}")
-        send_whatsapp(phone_number_id, cfg.escalation_number, notify)
+        deliver(cfg, cfg.escalation_number, notify)
 
 
 # ---------------------------------------------------------------------------
@@ -1630,6 +1685,111 @@ def my_order_status():
     if not cid or not update_order_status(data.get("order_id", ""), data.get("status", ""), cid):
         return {"success": False, "error": "Order not found"}, 404
     return {"success": True}, 200
+
+
+# ---------------------------------------------------------------------------
+# Zernio transport: inbound webhook + WhatsApp connect flow
+# ---------------------------------------------------------------------------
+def _zernio_extract(payload: dict) -> tuple[str, str, str]:
+    """From a Zernio message.received payload, return (account_id, sender, text).
+    Defensive about field names across Zernio's inbox schema."""
+    msg = payload.get("message", {}) or {}
+    conv = payload.get("conversation", {}) or {}
+    acct = payload.get("account", {}) or {}
+    account_id = str(acct.get("accountId") or acct.get("id") or "").strip()
+    contact = conv.get("contact", {}) or {}
+    sender = str(
+        msg.get("senderId") or msg.get("from")
+        or contact.get("handle") or contact.get("identifier")
+        or contact.get("platformId") or conv.get("contactId") or ""
+    ).strip()
+    text = msg.get("text") or msg.get("body") or ""
+    if isinstance(text, dict):
+        text = text.get("body", "")
+    return account_id, sender, str(text)
+
+
+@app.post("/zernio/webhook")
+def zernio_webhook():
+    """Inbound webhook from Zernio (transport=zernio clients)."""
+    raw = request.get_data()  # raw bytes for signature check
+    if ZERNIO_WEBHOOK_SECRET:
+        sig = request.headers.get("X-Zernio-Signature", "")
+        expected = hmac.new(ZERNIO_WEBHOOK_SECRET.encode(), raw,
+                            hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return "Invalid signature", 401
+    payload = request.get_json(silent=True) or {}
+    try:
+        if payload.get("event") == "message.received":
+            account_id, sender, text = _zernio_extract(payload)
+            cfg = get_client(account_id)
+            if cfg and sender:
+                if text.strip():
+                    _handle_text(cfg, account_id, sender, text)
+                else:
+                    _handle_non_text(cfg, account_id, sender)
+            else:
+                print(f"[zernio] no client for account {account_id}")
+    except Exception as exc:
+        print(f"[zernio] webhook error: {exc}")
+    return "OK", 200
+
+
+@app.get("/connect/whatsapp/start")
+def connect_whatsapp_start():
+    """Begin Zernio WhatsApp embedded-signup for the signed-in user.
+    Returns { authUrl } to redirect the client to."""
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    if not ZERNIO_API_KEY or not ZERNIO_PROFILE_ID:
+        return {"error": "Zernio not configured (set ZERNIO_API_KEY, ZERNIO_PROFILE_ID)."}, 400
+    user = get_user(email) or {}
+    if not user.get("client_id"):
+        return {"error": "Complete your business setup first."}, 400
+    token = request.headers.get("Authorization", "")[7:] or request.args.get("token", "")
+    redirect_url = f"{PUBLIC_BASE_URL}/connect/whatsapp/callback?state={urllib.parse.quote(token)}"
+    try:
+        r = requests.get(f"{ZERNIO_BASE}/v1/connect/whatsapp",
+                         params={"profileId": ZERNIO_PROFILE_ID, "redirect_url": redirect_url},
+                         headers={"Authorization": f"Bearer {ZERNIO_API_KEY}"}, timeout=15)
+        data = r.json()
+        auth_url = data.get("authUrl")
+        if not auth_url:
+            return {"error": "Zernio did not return an auth URL", "detail": data}, 502
+        return {"authUrl": auth_url}, 200
+    except Exception as e:
+        print(f"[zernio] connect start error: {e}")
+        return {"error": str(e)}, 500
+
+
+@app.get("/connect/whatsapp/callback")
+def connect_whatsapp_callback():
+    """Zernio redirects here after the user connects WhatsApp. We attach the
+    connected accountId to the signed-in user's client, then bounce to the app."""
+    state = request.args.get("state", "")
+    account_id = request.args.get("accountId", "")
+    username = request.args.get("username", "")  # the connected phone number
+    email = email_for_token(state)
+    ok = False
+    if email and account_id:
+        user = get_user(email) or {}
+        cid = user.get("client_id", "")
+        if cid:
+            _get_db().clients.update_one(
+                {"client_id": cid},
+                {"$set": {"transport": "zernio", "zernio_account_id": account_id,
+                          "phone": username, "status": "active"}})
+            reload_clients()
+            ok = True
+    dest = (APP_BASE_URL or "") + f"/app.html?whatsapp={'connected' if ok else 'failed'}"
+    return redirect_to(dest)
+
+
+def redirect_to(url: str):
+    from flask import redirect
+    return redirect(url or "/")
 
 
 @app.get("/health")
