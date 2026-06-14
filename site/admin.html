@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AIShop — Admin Dashboard</title>
+<style>
+  :root{--green:#1f9d55;--green-d:#177a42;--ink:#10241b;--muted:#5b6b63;--bg:#f6faf7;--line:#e3ece7;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);}
+  .top{background:#10241b;color:#fff;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
+  .top .brand{font-weight:800;}
+  .top a{color:#c7d6cd;text-decoration:none;font-size:14px;}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 18px 60px;}
+  .gate{max-width:380px;margin:60px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px;}
+  .gate h2{font-size:20px;margin-bottom:14px;}
+  input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;}
+  button{cursor:pointer;border:none;border-radius:10px;font-weight:700;}
+  .btn-primary{background:var(--green);color:#fff;padding:12px;width:100%;margin-top:14px;font-size:15px;}
+  .btn-primary:hover{background:var(--green-d);}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin:18px 0;}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;}
+  .stat .n{font-size:28px;font-weight:800;}
+  .stat .l{font-size:13px;color:var(--muted);}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;margin-bottom:18px;}
+  .card h3{font-size:16px;margin-bottom:12px;}
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:12px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);}
+  td{padding:10px;font-size:13px;border-bottom:1px solid #f1f5f3;}
+  tr:hover td{background:#fafdfb;}
+  .pill{padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;}
+  .pill-new{background:#fef3c7;color:#92400e;}
+  .pill-done{background:#dcfce7;color:#166534;}
+  select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;font-size:12px;}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .muted{color:var(--muted);font-size:13px;}
+  .err{color:#b42318;font-size:13px;margin-top:8px;}
+  .link{color:var(--green-d);cursor:pointer;font-weight:600;}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">AIShop · Admin</div>
+    <a href="index.html">← Home</a>
+  </div>
+
+  <!-- Gate -->
+  <div id="gate" class="gate">
+    <h2>Admin sign in</h2>
+    <p class="muted" style="margin-bottom:12px;">Enter your admin secret to view clients and orders.</p>
+    <input id="secret" type="password" placeholder="ADMIN_SECRET" />
+    <button class="btn-primary" onclick="enter()">Sign in</button>
+    <div id="gateErr" class="err"></div>
+  </div>
+
+  <!-- App -->
+  <div id="app" class="wrap" style="display:none;">
+    <div class="stats">
+      <div class="stat"><div class="n" id="cCount">–</div><div class="l">Active clients</div></div>
+      <div class="stat"><div class="n" id="oCount">–</div><div class="l">Orders (selected client)</div></div>
+    </div>
+
+    <div class="card">
+      <h3>Clients</h3>
+      <table>
+        <thead><tr><th>Business</th><th>Type</th><th>Language</th><th>client_id</th><th></th></tr></thead>
+        <tbody id="clientsBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card" id="ordersCard" style="display:none;">
+      <h3 id="ordersTitle">Orders</h3>
+      <table>
+        <thead><tr><th>Order ID</th><th>Customer</th><th>Details</th><th>Total</th><th>Status</th></tr></thead>
+        <tbody id="ordersBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  const API_BASE = "https://production-call-center.up.railway.app";
+  let SECRET = "";
+
+  function hdr(){ return SECRET ? {"X-Admin-Secret":SECRET} : {}; }
+
+  async function enter(){
+    SECRET = document.getElementById("secret").value.trim();
+    const err = document.getElementById("gateErr"); err.textContent = "";
+    try{
+      const res = await fetch(API_BASE + "/clients", { headers: hdr() });
+      if(res.status === 403){ err.textContent = "Wrong admin secret."; return; }
+      const data = await res.json();
+      document.getElementById("gate").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      renderClients(data.clients || []);
+    }catch(e){ err.textContent = "Network error: " + e.message; }
+  }
+
+  function renderClients(clients){
+    document.getElementById("cCount").textContent = clients.length;
+    const b = document.getElementById("clientsBody");
+    if(!clients.length){ b.innerHTML = '<tr><td colspan="5" class="muted">No active clients yet.</td></tr>'; return; }
+    b.innerHTML = clients.map(c => `
+      <tr>
+        <td><b>${esc(c.business_name)}</b></td>
+        <td>${esc(c.business_type)}</td>
+        <td>${esc(c.language)}</td>
+        <td class="muted">${esc(c.client_id||"")}</td>
+        <td><span class="link" onclick="loadOrders('${esc(c.client_id)}','${esc(c.business_name)}')">View orders</span></td>
+      </tr>`).join("");
+  }
+
+  async function loadOrders(clientId, name){
+    const card = document.getElementById("ordersCard");
+    card.style.display = "block";
+    document.getElementById("ordersTitle").textContent = "Orders — " + name;
+    const body = document.getElementById("ordersBody");
+    body.innerHTML = '<tr><td colspan="5" class="muted">Loading…</td></tr>';
+    try{
+      const res = await fetch(API_BASE + "/orders?client_id=" + encodeURIComponent(clientId), { headers: hdr() });
+      const data = await res.json();
+      const orders = data.orders || [];
+      document.getElementById("oCount").textContent = orders.length;
+      if(!orders.length){ body.innerHTML = '<tr><td colspan="5" class="muted">No orders yet.</td></tr>'; return; }
+      body.innerHTML = orders.map(o => {
+        const details = o.items || o.specialty || o.interest || "";
+        const cust = o.phone || o.patient_name || o.customer_name || "";
+        const st = (o.status||"New");
+        const pill = st.toLowerCase()==="new" ? "pill-new":"pill-done";
+        return `<tr>
+          <td><b>${esc(o.order_id||"")}</b></td>
+          <td>${esc(cust)}</td>
+          <td>${esc(details)}${o.address?'<br><span class="muted">'+esc(o.address)+'</span>':''}</td>
+          <td>${esc(o.total||"")}</td>
+          <td><span class="pill ${pill}">${esc(st)}</span>
+            <select onchange="setStatus('${esc(o.order_id)}','${esc(clientId)}',this.value)">
+              <option value="">↻</option><option>New</option><option>Preparing</option>
+              <option>Delivered</option><option>Completed</option><option>Cancelled</option>
+            </select></td>
+        </tr>`;
+      }).join("");
+    }catch(e){ body.innerHTML = '<tr><td colspan="5" class="err">'+e.message+'</td></tr>'; }
+  }
+
+  async function setStatus(orderId, clientId, status){
+    if(!status) return;
+    await fetch(API_BASE + "/update-order", {
+      method:"POST", headers:{...hdr(),"Content-Type":"application/json"},
+      body: JSON.stringify({order_id:orderId, client_id:clientId, status})
+    });
+    loadOrders(clientId, document.getElementById("ordersTitle").textContent.replace("Orders — ",""));
+  }
+
+  function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+  document.getElementById("secret").addEventListener("keydown",e=>{ if(e.key==="Enter") enter(); });
+</script>
+</body>
+</html>

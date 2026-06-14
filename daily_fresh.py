@@ -162,7 +162,8 @@ class ClientConfig:
     delivery_charge: float = 0.0
     escalation_number: str = ""
     language: str = "both"
-    sheet_id: str = ""
+    client_id: str = ""        # MongoDB data scope key
+    sheet_id: str = ""         # legacy (unused with MongoDB)
     currency: str = "AED"
 
     flow_family: str = field(default="", init=False)
@@ -186,6 +187,7 @@ class ClientConfig:
             delivery_charge=data.get("delivery_charge", 0),
             escalation_number=data.get("escalation_number", ""),
             language=data.get("language", "both"),
+            client_id=data.get("client_id", ""),
             sheet_id=data.get("sheet_id", ""),
             currency=data.get("currency", "AED"),
         )
@@ -374,14 +376,17 @@ def get_extraction_fields(cfg: ClientConfig) -> list[str]:
 
 
 # ===========================================================================
-# 5. CLIENT REGISTRY  (clients.json file OR CLIENTS_JSON env var)
+# 5. CLIENT REGISTRY  (MongoDB 'clients' collection)
 # ===========================================================================
+# Fallback sources (used only when MONGODB_URI is not set): clients.json / CLIENTS_JSON.
 CLIENTS_FILE = os.environ.get("CLIENTS_FILE", "clients.json")
+REGISTRY_TTL = int(os.environ.get("REGISTRY_TTL", "60"))  # re-read Mongo every 60s
 
 _clients_lock = threading.Lock()
 _clients_cache: dict[str, ClientConfig] = {}
 _clients_raw_cache: dict[str, dict] = {}
 _clients_mtime: float = 0.0
+_registry_loaded_at: float = 0.0
 
 
 def _build_registry(raw: dict) -> None:
@@ -396,9 +401,42 @@ def _build_registry(raw: dict) -> None:
     _clients_cache, _clients_raw_cache = registry, raw_registry
 
 
+def _read_clients_db() -> dict:
+    """Read active clients from MongoDB, keyed by phone_number_id.
+    Clients without a phone_number_id (or not active) are skipped (not routable)."""
+    raw = {}
+    for c in _get_db().clients.find({}):
+        pnid = str(c.get("phone_number_id", "")).strip()
+        status = str(c.get("status", "active")).strip().lower()
+        if not pnid or status in ("disabled", "paused", "pending"):
+            continue
+        raw[pnid] = {
+            "business_type": c.get("business_type", ""),
+            "business_name": c.get("business_name", ""),
+            "working_hours": c.get("working_hours", ""),
+            "delivery_charge": c.get("delivery_charge", 0) or 0,
+            "escalation_number": c.get("escalation_number", ""),
+            "language": c.get("language", "both") or "both",
+            "client_id": c.get("client_id", ""),
+            "currency": c.get("currency", "AED") or "AED",
+            "whatsapp_token": c.get("whatsapp_token", ""),
+        }
+    return raw
+
+
 def _load_registry() -> dict[str, ClientConfig]:
-    global _clients_mtime
+    global _clients_mtime, _registry_loaded_at
     with _clients_lock:
+        # 1) MongoDB (durable, self-service) — preferred when configured.
+        if MONGODB_URI:
+            if (time.time() - _registry_loaded_at) > REGISTRY_TTL or not _clients_cache:
+                try:
+                    _build_registry(_read_clients_db())
+                    _registry_loaded_at = time.time()
+                except Exception as exc:
+                    print(f"[clients] Mongo registry load failed: {exc}")
+            return _clients_cache
+        # 2) clients.json file (hot-reloaded via mtime) — fallback.
         try:
             mtime = os.path.getmtime(CLIENTS_FILE)
             if mtime != _clients_mtime or not _clients_cache:
@@ -408,6 +446,7 @@ def _load_registry() -> dict[str, ClientConfig]:
             return _clients_cache
         except OSError:
             pass
+        # 3) CLIENTS_JSON env var — fallback.
         if not _clients_cache:
             raw_env = os.environ.get("CLIENTS_JSON")
             if raw_env:
@@ -416,6 +455,26 @@ def _load_registry() -> dict[str, ClientConfig]:
                 except json.JSONDecodeError as exc:
                     print(f"[clients] CLIENTS_JSON parse error: {exc}")
         return _clients_cache
+
+
+def _slug(name: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", (name or "").strip().lower()).strip("-") or "client"
+    return f"{base[:24]}-{int(time.time()) % 100000}"
+
+
+def upsert_client_db(data: dict) -> tuple[str, str]:
+    """Create or update a client doc in MongoDB.
+    Matches by phone_number_id when present, else by business_name.
+    Returns (action, client_id)."""
+    db = _get_db()
+    pnid = str(data.get("phone_number_id", "")).strip()
+    name = str(data.get("business_name", "")).strip()
+    query = {"phone_number_id": pnid} if pnid else {"business_name": name}
+    existing = db.clients.find_one(query)
+    client_id = (existing or {}).get("client_id") or data.get("client_id") or _slug(name)
+    data["client_id"] = client_id
+    db.clients.update_one(query, {"$set": data}, upsert=True)
+    return ("updated" if existing else "created", client_id)
 
 
 def get_client(phone_number_id: str) -> Optional[ClientConfig]:
@@ -433,162 +492,131 @@ def get_whatsapp_token(phone_number_id: str) -> str:
 
 
 def reload_clients() -> int:
-    global _clients_mtime, _clients_cache, _clients_raw_cache
+    global _clients_mtime, _clients_cache, _clients_raw_cache, _registry_loaded_at
     _clients_mtime, _clients_cache, _clients_raw_cache = 0.0, {}, {}
+    _registry_loaded_at = 0.0
     return len(_load_registry())
 
 
 # ===========================================================================
-# 6. GOOGLE SHEETS DATA LAYER
+# 6. MONGODB DATA LAYER
 # ===========================================================================
-import gspread  # noqa: E402
-from google.oauth2.service_account import Credentials  # noqa: E402
+from pymongo import MongoClient, ASCENDING  # noqa: E402
 
-_SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-GOOGLE_CREDS_FILE = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "credentials.json")
-
-PRODUCTS_TAB = "Products"
-ORDERS_TAB = "Orders"
-CUSTOMERS_TAB = "Customers"
-SLOTS_TAB = "Slots"
+MONGODB_URI = os.environ.get("MONGODB_URI", "")
+DB_NAME = os.environ.get("MONGODB_DB", "aishop")
 PRODUCT_CACHE_TTL = 300  # 5 minutes
 
-_sheets_lock = threading.Lock()
-_gc: Optional[gspread.Client] = None
+_mongo_lock = threading.Lock()
+_mongo_client: Optional[MongoClient] = None
+_db = None
 _product_cache: dict[str, tuple[float, list[dict]]] = {}
 
 
-def _get_gspread() -> gspread.Client:
-    global _gc
-    with _sheets_lock:
-        if _gc is not None:
-            return _gc
-        raw = os.environ.get("GOOGLE_CREDENTIALS_JSON")
-        if raw:
-            creds = Credentials.from_service_account_info(json.loads(raw), scopes=_SCOPES)
-        else:
-            creds = Credentials.from_service_account_file(GOOGLE_CREDS_FILE, scopes=_SCOPES)
-        _gc = gspread.authorize(creds)
-        return _gc
+def _get_db():
+    """Lazily connect to MongoDB and ensure indexes (best-effort)."""
+    global _mongo_client, _db
+    with _mongo_lock:
+        if _db is not None:
+            return _db
+        if not MONGODB_URI:
+            raise RuntimeError("MONGODB_URI is not set.")
+        _mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=8000)
+        _db = _mongo_client[DB_NAME]
+        try:
+            _db.clients.create_index("phone_number_id")
+            _db.clients.create_index("client_id", unique=True, sparse=True)
+            _db.products.create_index([("client_id", ASCENDING), ("name", ASCENDING)])
+            _db.orders.create_index([("client_id", ASCENDING), ("order_id", ASCENDING)])
+            _db.customers.create_index([("client_id", ASCENDING), ("phone", ASCENDING)], unique=True)
+            _db.slots.create_index([("client_id", ASCENDING)])
+        except Exception as exc:
+            print(f"[mongo] index warning: {exc}")
+        return _db
 
 
-def _open(sheet_id: str):
-    return _get_gspread().open_by_key(sheet_id)
-
-
-def _worksheet(sheet_id: str, title: str):
-    sh = _open(sheet_id)
-    try:
-        return sh.worksheet(title)
-    except gspread.WorksheetNotFound:
-        return sh.add_worksheet(title=title, rows=1000, cols=26)
-
-
-def get_products(sheet_id: str, force: bool = False) -> list[dict]:
+# ---- products / menu / specialties ---------------------------------------
+def get_products(client_id: str, force: bool = False) -> list[dict]:
     now = time.time()
     if not force:
-        cached = _product_cache.get(sheet_id)
+        cached = _product_cache.get(client_id)
         if cached and (now - cached[0]) < PRODUCT_CACHE_TTL:
             return cached[1]
     try:
-        rows = _worksheet(sheet_id, PRODUCTS_TAB).get_all_records()
+        rows = list(_get_db().products.find({"client_id": client_id}, {"_id": 0}))
     except Exception as exc:
-        print(f"[sheets] product fetch failed for {sheet_id}: {exc}")
-        cached = _product_cache.get(sheet_id)
+        print(f"[mongo] product fetch failed for {client_id}: {exc}")
+        cached = _product_cache.get(client_id)
         return cached[1] if cached else []
-    _product_cache[sheet_id] = (now, rows)
+    _product_cache[client_id] = (now, rows)
     return rows
 
 
-def products_as_text(sheet_id: str, force: bool = False) -> str:
-    """Format product/menu rows for the prompt. Tolerant of column naming
-    (Product, Price_AED, Stock, Name, Item, Service, Rate, etc.)."""
-    rows = get_products(sheet_id, force=force)
+def products_as_text(client_id: str, force: bool = False) -> str:
+    rows = get_products(client_id, force=force)
     if not rows:
         return ""
     lines = []
     for r in rows:
-        lc = {str(k).strip().lower(): v for k, v in r.items()}
-        name = (lc.get("name") or lc.get("item") or lc.get("product")
-                or lc.get("service") or lc.get("dish"))
-        price = lc.get("price") or lc.get("rate") or lc.get("cost")
-        if price in (None, ""):  # match Price_AED and similar
-            for k, v in lc.items():
-                if "price" in k and str(v).strip():
-                    price = v
-                    break
-        stock = None
-        for k, v in lc.items():
-            if ("stock" in k or "availab" in k or k == "qty") and str(v).strip() != "":
-                stock = v
-                break
-        if name is None:
-            lines.append(", ".join(f"{k}: {v}" for k, v in r.items() if str(v).strip()))
+        name = str(r.get("name") or r.get("product") or r.get("service") or "").strip()
+        if not name:
             continue
-        parts = [str(name).strip()]
+        price = r.get("price", "")
+        unit = r.get("unit", "")
+        stock = r.get("stock", None)
+        parts = [name]
         if price not in (None, ""):
-            parts.append(f"- {price} {('AED' if 'price_aed' in lc else '')}".rstrip())
+            parts.append(f"- {price}{('/' + str(unit)) if unit else ''}")
         if stock not in (None, ""):
             try:
-                parts.append("(In Stock)" if int(stock) > 0 else "(Out of Stock)")
+                parts.append("(In Stock)" if float(stock) > 0 else "(Out of Stock)")
             except (ValueError, TypeError):
                 parts.append(f"({stock})")
         lines.append(" ".join(parts))
     return "\n".join(lines)
 
 
-def slots_as_text(sheet_id: str) -> str:
+# ---- appointment slots ----------------------------------------------------
+def slots_as_text(client_id: str) -> str:
     try:
-        rows = _worksheet(sheet_id, SLOTS_TAB).get_all_records()
+        rows = list(_get_db().slots.find({"client_id": client_id}, {"_id": 0}))
     except Exception:
         return ""
     out = []
     for r in rows:
-        lc = {str(k).strip().lower(): v for k, v in r.items()}
-        status = str(lc.get("status", "available")).strip().lower()
+        status = str(r.get("status", "available")).strip().lower()
         if status not in ("", "available", "open", "free"):
             continue
-        out.append(", ".join(f"{k}: {v}" for k, v in r.items() if str(v).strip()))
+        out.append(", ".join(f"{k}: {v}" for k, v in r.items()
+                             if k != "client_id" and str(v).strip()))
     return "\n".join(out)
 
 
-def get_customer(sheet_id: str, phone: str) -> Optional[dict]:
+# ---- customer memory ------------------------------------------------------
+def get_customer(client_id: str, phone: str) -> Optional[dict]:
     try:
-        rows = _worksheet(sheet_id, CUSTOMERS_TAB).get_all_records()
+        return _get_db().customers.find_one(
+            {"client_id": client_id, "phone": _norm_phone(phone)}, {"_id": 0})
     except Exception as exc:
-        print(f"[sheets] customer fetch failed: {exc}")
+        print(f"[mongo] customer fetch failed: {exc}")
         return None
+
+
+def upsert_customer(client_id: str, phone: str, name: str = "", address: str = "") -> None:
     pn = _norm_phone(phone)
-    for r in rows:
-        lc = {str(k).strip().lower(): v for k, v in r.items()}
-        if _norm_phone(str(lc.get("phone", ""))) == pn:
-            return lc
-    return None
-
-
-def upsert_customer(sheet_id: str, phone: str, name: str = "", address: str = "") -> None:
+    set_fields = {"client_id": client_id, "phone": pn, "updated_at": _now()}
+    if name:
+        set_fields["name"] = name
+    if address:
+        set_fields["address"] = address
     try:
-        ws = _worksheet(sheet_id, CUSTOMERS_TAB)
-        records = ws.get_all_records()
+        _get_db().customers.update_one(
+            {"client_id": client_id, "phone": pn}, {"$set": set_fields}, upsert=True)
     except Exception as exc:
-        print(f"[sheets] customer upsert failed: {exc}")
-        return
-    pn = _norm_phone(phone)
-    if not ws.row_values(1):
-        ws.update("A1:D1", [["Phone", "Name", "Address", "UpdatedAt"]])
-    for idx, r in enumerate(records, start=2):
-        lc = {str(k).strip().lower(): v for k, v in r.items()}
-        if _norm_phone(str(lc.get("phone", ""))) == pn:
-            ws.update(f"A{idx}:D{idx}",
-                      [[phone, name or lc.get("name", ""),
-                        address or lc.get("address", ""), _now()]])
-            return
-    ws.append_row([phone, name, address, _now()], value_input_option="USER_ENTERED")
+        print(f"[mongo] customer upsert failed: {exc}")
 
 
+# ---- orders / bookings / leads -------------------------------------------
 def _items_to_text(items) -> str:
     """Render the extracted items (JSON list or string) as readable text."""
     if isinstance(items, list):
@@ -604,38 +632,76 @@ def _items_to_text(items) -> str:
     return str(items or "")
 
 
-def save_order_legacy(sheet_id: str, phone: str, record: dict) -> str:
-    """Append a grocery/restaurant order in the ORIGINAL Daily Fresh column
-    layout so existing sheets + dashboard keep working:
-      [Order_ID, Phone, Items, Total, Address, Status, Timestamp]
-    Append-only — never rewrites the header row."""
-    ws = _worksheet(sheet_id, ORDERS_TAB)
+def save_order_legacy(client_id: str, phone: str, record: dict) -> str:
+    """Save a grocery/restaurant order with the familiar simple fields."""
     order_id = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    items = _items_to_text(record.get("items", ""))
     total = record.get("total", "")
     if total in (None, ""):
         total = record.get("subtotal", "0")
-    address = record.get("delivery_address", "")
-    ws.append_row([order_id, phone, items, str(total), address, "New", _now()],
-                  value_input_option="USER_ENTERED")
+    doc = {
+        "client_id": client_id, "order_id": order_id, "phone": _norm_phone(phone),
+        "items": _items_to_text(record.get("items", "")),
+        "total": str(total), "address": record.get("delivery_address", ""),
+        "status": "New", "created_at": _now(),
+    }
+    _get_db().orders.insert_one(dict(doc))
     return order_id
 
 
-def save_record(sheet_id: str, fields: list[str], data: dict, id_prefix: str = "ORD") -> str:
+def save_record(client_id: str, fields: list[str], data: dict, id_prefix: str = "ORD") -> str:
+    """Save a booking/lead (and any non-grocery order) with its full field set."""
     record_id = _gen_id(id_prefix)
-    ws = _worksheet(sheet_id, ORDERS_TAB)
-    header = ["ID", "Timestamp"] + fields + ["Status"]
-    if ws.row_values(1) != header:
-        ws.update("A1", [header])
-    row = [record_id, _now()]
+    doc = {"client_id": client_id, "order_id": record_id,
+           "status": "New", "created_at": _now()}
     for f in fields:
         val = data.get(f, "")
-        if isinstance(val, (list, dict)):
-            val = json.dumps(val, ensure_ascii=False)
-        row.append(val)
-    row.append("New")
-    ws.append_row(row, value_input_option="USER_ENTERED")
+        if isinstance(val, list):
+            val = _items_to_text(val) if f == "items" else json.dumps(val, ensure_ascii=False)
+        doc[f] = val
+    _get_db().orders.insert_one(dict(doc))
     return record_id
+
+
+# ---- product management (dashboard CRUD) ---------------------------------
+def seed_products(client_id: str, products_text: str) -> int:
+    """Parse a free-text product list ('Name - price' per line) into the
+    products collection. Replaces this client's existing products."""
+    db = _get_db()
+    db.products.delete_many({"client_id": client_id})
+    docs = []
+    for line in (products_text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        name, price = line, ""
+        m = re.split(r"\s*[-|:]\s*", line, maxsplit=1)
+        if len(m) == 2:
+            name = m[0].strip()
+            pm = re.search(r"[\d.]+", m[1])
+            price = pm.group(0) if pm else ""
+        docs.append({"client_id": client_id, "name": name, "price": price,
+                     "unit": "", "stock": 1})
+    if docs:
+        db.products.insert_many(docs)
+    _product_cache.pop(client_id, None)
+    return len(docs)
+
+
+def list_orders(client_id: str, limit: int = 100) -> list[dict]:
+    try:
+        return list(_get_db().orders.find({"client_id": client_id}, {"_id": 0})
+                    .sort("created_at", -1).limit(limit))
+    except Exception as exc:
+        print(f"[mongo] list orders failed: {exc}")
+        return []
+
+
+def update_order_status(order_id: str, status: str, client_id: str = "") -> bool:
+    q = {"order_id": order_id}
+    if client_id:
+        q["client_id"] = client_id
+    res = _get_db().orders.update_one(q, {"$set": {"status": status}})
+    return res.matched_count > 0
 
 
 def _now() -> str:
@@ -987,7 +1053,7 @@ def _handle_text(phone_number_id: str, msg: dict) -> None:
     sess = get_session(phone_number_id, wa_id)
 
     if not sess.history:
-        existing = get_customer(cfg.sheet_id, wa_id)
+        existing = get_customer(cfg.client_id, wa_id)
         if existing:
             sess.customer_name = existing.get("name", "")
             sess.saved_address = existing.get("address", "")
@@ -1015,8 +1081,8 @@ def _handle_text(phone_number_id: str, msg: dict) -> None:
             return
 
     # 3) Normal turn — live data + Claude
-    items_text = products_as_text(cfg.sheet_id)
-    slots_text = slots_as_text(cfg.sheet_id) if cfg.flow_family == FLOW_APPOINTMENT else ""
+    items_text = products_as_text(cfg.client_id)
+    slots_text = slots_as_text(cfg.client_id) if cfg.flow_family == FLOW_APPOINTMENT else ""
 
     sys_prompt = build_system_prompt(cfg, items_text=items_text, slots_text=slots_text)
     if sess.saved_address:
@@ -1038,7 +1104,7 @@ def _handle_text(phone_number_id: str, msg: dict) -> None:
 
     if cfg.has_delivery and looks_like_address(body):
         sess.saved_address = body
-        upsert_customer(cfg.sheet_id, wa_id, name=sess.customer_name, address=body)
+        upsert_customer(cfg.client_id, wa_id, name=sess.customer_name, address=body)
 
     send_whatsapp(phone_number_id, wa_id, reply_text)
 
@@ -1056,11 +1122,11 @@ def _finalize(cfg: ClientConfig, phone_number_id: str, wa_id: str, sess: Session
     try:
         if cfg.flow_family in (FLOW_ORDER, FLOW_RESTAURANT):
             # Backward-compatible layout for existing grocery/restaurant sheets.
-            record_id = save_order_legacy(cfg.sheet_id, wa_id, record)
+            record_id = save_order_legacy(cfg.client_id, wa_id, record)
         else:
             fields = get_extraction_fields(cfg)
             prefix = _ID_PREFIX.get(cfg.flow_family, "ORD")
-            record_id = save_record(cfg.sheet_id, fields, record, id_prefix=prefix)
+            record_id = save_record(cfg.client_id, fields, record, id_prefix=prefix)
     except Exception as exc:
         print(f"[finalize] save failed: {exc}")
         send_whatsapp(phone_number_id, wa_id,
@@ -1072,7 +1138,7 @@ def _finalize(cfg: ClientConfig, phone_number_id: str, wa_id: str, sess: Session
     name = record.get("customer_name") or record.get("patient_name") or sess.customer_name
     addr = record.get("delivery_address") or sess.saved_address
     if name or addr:
-        upsert_customer(cfg.sheet_id, wa_id, name=name, address=addr)
+        upsert_customer(cfg.client_id, wa_id, name=name, address=addr)
 
     if cfg.flow_family == FLOW_APPOINTMENT:
         msg_en = f"✅ Appointment booked! Booking ID: {record_id}. You'll get a reminder before your appointment."
@@ -1169,24 +1235,11 @@ def update_order():
         data = request.get_json() or {}
         order_id = data.get("order_id")
         new_status = data.get("status")
-        sheet_id = data.get("sheet_id")
-        if not order_id or not new_status or not sheet_id:
-            return {"error": "Missing data"}, 400
-        sh = _open(sheet_id)
-        worksheet = sh.worksheet(ORDERS_TAB)
-        all_values = worksheet.get_all_values()
-        if len(all_values) < 1:
-            return {"error": "Sheet is empty"}, 404
-        headers = all_values[0]
-        status_col = next((i for i, h in enumerate(headers) if h.strip().lower() == "status"), None)
-        if status_col is None:
-            return {"error": "Status column not found"}, 400
-        order_row = next((i + 1 for i, row in enumerate(all_values)
-                          if i > 0 and row and row[0].strip() == str(order_id).strip()), None)
-        if order_row is None:
+        client_id = data.get("client_id", "")
+        if not order_id or not new_status:
+            return {"error": "Missing data (order_id, status)"}, 400
+        if not update_order_status(order_id, new_status, client_id):
             return {"error": f"Order {order_id} not found"}, 404
-        cell = f"{chr(65 + status_col)}{order_row}"
-        worksheet.update(cell, [[new_status]])
         return {"success": True, "order_id": order_id, "status": new_status}, 200
     except Exception as e:
         print(f"Update order error: {e}")
@@ -1206,6 +1259,119 @@ def escalate():
     except Exception as e:
         print(f"Escalation error: {e}")
         return "Error", 500
+
+
+@app.route("/onboard", methods=["POST"])
+def onboard():
+    """Self-service client onboarding. Writes a client doc to MongoDB and seeds
+    the products collection. Optional shared key: set ONBOARD_KEY env and send it
+    as X-Onboard-Key header or 'onboard_key' in the body."""
+    if not MONGODB_URI:
+        return {"success": False, "error": "Onboarding not configured (set MONGODB_URI)."}, 400
+    data = request.get_json(silent=True) or {}
+
+    key = os.environ.get("ONBOARD_KEY")
+    if key and request.headers.get("X-Onboard-Key") != key and data.get("onboard_key") != key:
+        return {"success": False, "error": "Unauthorized"}, 401
+
+    business_name = sanitize_input(data.get("business_name", "")).strip()
+    business_type = sanitize_input(data.get("business_type", "")).strip()
+    if not business_name or not business_type:
+        return {"success": False, "error": "business_name and business_type are required"}, 400
+
+    pnid = sanitize_input(str(data.get("phone_number_id", ""))).strip()
+    record = {
+        "business_name": business_name,
+        "business_type": business_type,
+        "working_hours": sanitize_input(data.get("working_hours", "")),
+        "delivery_charge": _coerce_float(data.get("delivery_charge", 0)),
+        "escalation_number": sanitize_input(str(data.get("escalation_number", ""))),
+        "language": normalize_language(data.get("language", "both")),
+        "currency": sanitize_input(data.get("currency", "AED")).strip() or "AED",
+        "phone_number_id": pnid,
+        "whatsapp_token": data.get("whatsapp_token", ""),
+        "status": "active" if pnid else "pending",
+        "created_at": _now(),
+    }
+    try:
+        action, client_id = upsert_client_db(record)
+        seeded = 0
+        if data.get("products"):
+            seeded = seed_products(client_id, data.get("products", ""))
+    except Exception as e:
+        print(f"[onboard] error: {e}")
+        return {"success": False, "error": str(e)}, 500
+
+    reload_clients()
+    return {"success": True, "action": action, "client_id": client_id,
+            "status": record["status"], "business_name": business_name,
+            "products_added": seeded,
+            "note": ("Live now." if pnid else
+                     "Saved as pending — connect a WhatsApp number and add its "
+                     "phone_number_id to activate.")}, 200
+
+
+@app.get("/clients")
+def list_clients():
+    """Admin: list active clients (no tokens). Protect with ADMIN_SECRET if set."""
+    secret = os.environ.get("ADMIN_SECRET")
+    if secret and request.headers.get("X-Admin-Secret") != secret:
+        abort(403)
+    out = []
+    for pnid in all_phone_number_ids():
+        c = get_client(pnid)
+        if c:
+            out.append({"phone_number_id": pnid, "client_id": c.client_id,
+                        "business_name": c.business_name,
+                        "business_type": c.canonical_type, "language": c.language})
+    return jsonify({"count": len(out), "clients": out})
+
+
+def _check_admin():
+    secret = os.environ.get("ADMIN_SECRET")
+    if secret and request.headers.get("X-Admin-Secret") != secret:
+        abort(403)
+
+
+@app.route("/products", methods=["GET", "POST", "PUT", "DELETE"])
+def products_api():
+    """Manage a client's catalog. Requires X-Admin-Secret if ADMIN_SECRET is set.
+    GET  /products?client_id=...           -> list
+    POST {client_id, name, price, unit, stock}    -> add/update by name
+    DELETE {client_id, name}               -> remove one"""
+    if request.method == "GET":
+        client_id = request.args.get("client_id", "")
+        if not client_id:
+            return {"error": "client_id required"}, 400
+        return jsonify({"products": get_products(client_id, force=True)})
+
+    _check_admin()
+    data = request.get_json(silent=True) or {}
+    client_id = data.get("client_id", "")
+    name = sanitize_input(str(data.get("name", ""))).strip()
+    if not client_id or not name:
+        return {"error": "client_id and name required"}, 400
+    db = _get_db()
+    if request.method == "DELETE":
+        db.products.delete_one({"client_id": client_id, "name": name})
+    else:
+        doc = {"client_id": client_id, "name": name,
+               "price": data.get("price", ""), "unit": data.get("unit", ""),
+               "stock": data.get("stock", 1)}
+        db.products.update_one({"client_id": client_id, "name": name},
+                               {"$set": doc}, upsert=True)
+    _product_cache.pop(client_id, None)
+    return {"success": True}, 200
+
+
+@app.get("/orders")
+def orders_api():
+    """List a client's orders. GET /orders?client_id=...  (admin-protected)."""
+    _check_admin()
+    client_id = request.args.get("client_id", "")
+    if not client_id:
+        return {"error": "client_id required"}, 400
+    return jsonify({"orders": list_orders(client_id)})
 
 
 @app.post("/reload-clients")

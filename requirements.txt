@@ -1,8 +1,8 @@
 anthropic
 flask
+flask-cors
 requests
-gspread
-google-auth
 python-dotenv
 gunicorn
-flask-cors
+pymongo
+dnspython

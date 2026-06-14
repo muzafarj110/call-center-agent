@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AIShop — Onboard Your Business</title>
+<style>
+  :root { --green:#1f9d55; --green-d:#177a42; --ink:#1f2933; --muted:#6b7280; --line:#e3e8ef; --bg:#f5f7fa; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  .wrap { max-width:640px; margin:0 auto; padding:32px 18px 60px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:28px; }
+  h1 { margin:0 0 4px; font-size:24px; }
+  .sub { color:var(--muted); margin:0 0 22px; font-size:14px; }
+  label { display:block; font-weight:600; font-size:13px; margin:16px 0 6px; }
+  .hint { font-weight:400; color:var(--muted); font-size:12px; }
+  input, select, textarea { width:100%; padding:11px 12px; border:1px solid var(--line);
+         border-radius:10px; font-size:14px; font-family:inherit; background:#fff; }
+  textarea { min-height:90px; resize:vertical; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--green); }
+  .row { display:flex; gap:12px; }
+  .row > div { flex:1; }
+  .req { color:var(--green-d); }
+  button { width:100%; margin-top:24px; padding:14px; border:none; border-radius:10px;
+           background:var(--green); color:#fff; font-size:15px; font-weight:700; cursor:pointer; }
+  button:hover { background:var(--green-d); }
+  button:disabled { opacity:.6; cursor:default; }
+  .msg { margin-top:18px; padding:14px; border-radius:10px; font-size:14px; display:none; }
+  .ok { background:#e9f7ef; color:#177a42; border:1px solid #bfe6cd; }
+  .err { background:#fdecea; color:#b42318; border:1px solid #f6cfc9; }
+  .adv { margin-top:18px; border-top:1px dashed var(--line); padding-top:8px; }
+  summary { cursor:pointer; font-weight:600; font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Onboard your business</h1>
+    <p class="sub">Set up your WhatsApp AI assistant. Fields marked <span class="req">*</span> are required.</p>
+
+    <form id="f">
+      <label>Business name <span class="req">*</span></label>
+      <input name="business_name" required placeholder="e.g. Poly Clinic" />
+
+      <label>Business type <span class="req">*</span></label>
+      <select name="business_type" required>
+        <option value="">Select…</option>
+        <option value="baqala">Baqala / Grocery</option>
+        <option value="supermarket">Supermarket</option>
+        <option value="pharmacy">Pharmacy</option>
+        <option value="restaurant">Restaurant</option>
+        <option value="cafeteria">Cafeteria / Cafe</option>
+        <option value="clinic">Clinic</option>
+        <option value="hospital">Hospital</option>
+        <option value="retail">Retail shop</option>
+        <option value="custom">Other / Custom</option>
+      </select>
+
+      <label>Products / services / specialties
+        <span class="hint">— one per line as "Name - price" (price optional). For a clinic, list departments/doctors.</span>
+      </label>
+      <textarea name="products" placeholder="Tomatoes - 5&#10;Apples - 8&#10;&#10;(clinic) General Medicine&#10;Dental&#10;Dermatology"></textarea>
+
+      <div class="row">
+        <div>
+          <label>Working hours</label>
+          <input name="working_hours" placeholder="9 AM – 9 PM, Sat–Thu" />
+        </div>
+        <div>
+          <label>Language</label>
+          <select name="language">
+            <option value="both">Arabic + English</option>
+            <option value="arabic">Arabic only</option>
+            <option value="english">English only</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Delivery charge <span class="hint">(0 if none)</span></label>
+          <input name="delivery_charge" type="number" step="0.01" value="0" />
+        </div>
+        <div>
+          <label>Escalation number <span class="hint">(with code)</span></label>
+          <input name="escalation_number" placeholder="9715xxxxxxxx" />
+        </div>
+      </div>
+
+      <details class="adv">
+        <summary>WhatsApp connection (optional — fill once the number is connected)</summary>
+        <label>WhatsApp phone_number_id
+          <span class="hint">— leave blank to save as “pending”; the bot activates once this is set.</span>
+        </label>
+        <input name="phone_number_id" placeholder="e.g. 1234567890" />
+        <label>WhatsApp token <span class="hint">(only if this number uses a different Meta account)</span></label>
+        <input name="whatsapp_token" placeholder="optional" />
+      </details>
+
+      <details class="adv">
+        <summary>Onboarding key (if required)</summary>
+        <label>Access key</label>
+        <input name="onboard_key" placeholder="provided by AIShop" />
+      </details>
+
+      <button id="btn" type="submit">Create my assistant</button>
+      <div id="msg" class="msg"></div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // ⚙️ Point this at your Railway backend:
+  const API_BASE = "https://production-call-center.up.railway.app";
+
+  const form = document.getElementById("f");
+  const msg = document.getElementById("msg");
+  const btn = document.getElementById("btn");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    msg.style.display = "none";
+    btn.disabled = true; btn.textContent = "Submitting…";
+
+    const data = Object.fromEntries(new FormData(form).entries());
+    const headers = { "Content-Type": "application/json" };
+    if (data.onboard_key) headers["X-Onboard-Key"] = data.onboard_key;
+
+    try {
+      const res = await fetch(API_BASE + "/onboard", {
+        method: "POST", headers, body: JSON.stringify(data),
+      });
+      const out = await res.json();
+      if (res.ok && out.success) {
+        msg.className = "msg ok";
+        msg.textContent = "✅ " + out.business_name + " " + out.action +
+          " (" + out.status + "). " + (out.note || "");
+        form.reset();
+      } else {
+        msg.className = "msg err";
+        msg.textContent = "⚠️ " + (out.error || "Something went wrong.");
+      }
+    } catch (err) {
+      msg.className = "msg err";
+      msg.textContent = "⚠️ Network error: " + err.message;
+    } finally {
+      msg.style.display = "block";
+      btn.disabled = false; btn.textContent = "Create my assistant";
+    }
+  });
+</script>
+</body>
+</html>
