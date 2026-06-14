@@ -496,6 +496,19 @@ def upsert_client_db(data: dict) -> tuple[str, str]:
     return ("updated" if existing else "created", client_id)
 
 
+def _sole_active_zernio_client() -> Optional[dict]:
+    """Return the single active Zernio client doc, or None if not exactly one.
+    Used to auto-bind a sandbox/demo number on its first inbound message."""
+    try:
+        docs = [d for d in _get_db().clients.find({"transport": "zernio"})
+                if str(d.get("status", "active")).strip().lower()
+                not in ("disabled", "paused")]
+    except Exception as exc:
+        print(f"[clients] sole-zernio lookup failed: {exc}")
+        return None
+    return docs[0] if len(docs) == 1 else None
+
+
 def get_client(phone_number_id: str) -> Optional[ClientConfig]:
     return _load_registry().get(str(phone_number_id))
 
@@ -1522,6 +1535,29 @@ def orders_api():
     return jsonify({"orders": list_orders(client_id)})
 
 
+@app.post("/admin/connect-zernio")
+def admin_connect_zernio():
+    """Admin: mark a client as a Zernio (active) client — e.g. for a sandbox
+    demo. Match by client_id or business_name. zernio_account_id is optional
+    (it auto-binds on the first inbound message). Protect with ADMIN_SECRET."""
+    _check_admin()
+    data = request.get_json(silent=True) or {}
+    if data.get("client_id"):
+        q = {"client_id": data["client_id"]}
+    elif data.get("business_name"):
+        q = {"business_name": data["business_name"]}
+    else:
+        return {"error": "client_id or business_name required"}, 400
+    upd = {"transport": "zernio", "status": "active"}
+    if data.get("zernio_account_id"):
+        upd["zernio_account_id"] = str(data["zernio_account_id"]).strip()
+    res = _get_db().clients.update_one(q, {"$set": upd})
+    if not res.matched_count:
+        return {"error": "client not found"}, 404
+    reload_clients()
+    return {"success": True}, 200
+
+
 @app.post("/reload-clients")
 def reload_clients_route():
     secret = os.environ.get("ADMIN_SECRET")
@@ -1724,6 +1760,19 @@ def zernio_webhook():
         if payload.get("event") == "message.received":
             account_id, sender, text = _zernio_extract(payload)
             cfg = get_client(account_id)
+            # Auto-bind: if no client matches this account yet but there's exactly
+            # one active Zernio client (e.g. a demo/sandbox), attach this account
+            # to it so future routing + sending work.
+            if not cfg and account_id:
+                doc = _sole_active_zernio_client()
+                if doc:
+                    _get_db().clients.update_one(
+                        {"client_id": doc["client_id"]},
+                        {"$set": {"zernio_account_id": account_id,
+                                  "transport": "zernio", "status": "active"}})
+                    reload_clients()
+                    cfg = get_client(account_id)
+                    print(f"[zernio] auto-bound account {account_id} -> {doc['client_id']}")
             if cfg and sender:
                 if text.strip():
                     _handle_text(cfg, account_id, sender, text)
