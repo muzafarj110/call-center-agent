@@ -1770,13 +1770,17 @@ def _zernio_extract(payload: dict) -> tuple[str, str, str, str]:
 def zernio_webhook():
     """Inbound webhook from Zernio (transport=zernio clients)."""
     raw = request.get_data()  # raw bytes for signature check
+    print(f"[zernio] webhook hit ({len(raw)} bytes)")
     if ZERNIO_WEBHOOK_SECRET:
         sig = request.headers.get("X-Zernio-Signature", "")
         expected = hmac.new(ZERNIO_WEBHOOK_SECRET.encode(), raw,
                             hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected):
+            print(f"[zernio] BAD SIGNATURE (got {sig[:12]}…, expected {expected[:12]}…) "
+                  f"— check ZERNIO_WEBHOOK_SECRET matches Zernio's webhook secret")
             return "Invalid signature", 401
     payload = request.get_json(silent=True) or {}
+    print(f"[zernio] event={payload.get('event')}")
     try:
         if payload.get("event") == "message.received":
             account_id, sender, text, conversation_id = _zernio_extract(payload)
