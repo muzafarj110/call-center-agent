@@ -1112,29 +1112,38 @@ _zernio_convo: dict[tuple, str] = {}
 
 def zernio_send(account_id: str, to: str, text: str) -> None:
     """Reply on WhatsApp via Zernio inbox API (free-form, 24h window).
-    Sends by conversationId when known (the inbox reply model)."""
+    Tries the known-plausible inbox-send endpoints in order and uses the first
+    that returns 2xx. Logs each attempt so the working shape is discoverable."""
     if not ZERNIO_API_KEY:
         print("[zernio] ZERNIO_API_KEY not set; cannot send")
         return
+    body = text[:4096]
     cid = _zernio_convo.get((account_id, to))
     headers = {"Authorization": f"Bearer {ZERNIO_API_KEY}", "Content-Type": "application/json"}
-    try:
-        if cid:
-            url = f"{ZERNIO_BASE}/v1/inbox/conversations/{cid}/messages"
-            r = requests.post(url, json={"accountId": account_id, "message": text[:4096]},
-                              headers=headers, timeout=15)
-        else:
-            url = f"{ZERNIO_BASE}/v1/messages"
-            r = requests.post(url, json={"profileId": ZERNIO_PROFILE_ID,
-                                         "accountId": account_id, "platform": "whatsapp",
-                                         "to": to, "text": text[:4096]},
-                              headers=headers, timeout=15)
-        if r.status_code >= 300:
-            print(f"[zernio] send failed {r.status_code} ({url}): {r.text[:300]}")
-        else:
-            print(f"[zernio] sent ok ({url})")
-    except requests.RequestException as exc:
-        print(f"[zernio] send error: {exc}")
+    # (method, url, json-body) candidates — conversationId forms first.
+    attempts = []
+    if cid:
+        attempts += [
+            (f"{ZERNIO_BASE}/v1/inbox/conversations/{cid}/messages", {"accountId": account_id, "message": body}),
+            (f"{ZERNIO_BASE}/v1/inbox/conversations/{cid}/messages", {"accountId": account_id, "text": body}),
+            (f"{ZERNIO_BASE}/v1/messages", {"accountId": account_id, "conversationId": cid, "message": body}),
+            (f"{ZERNIO_BASE}/v1/messages", {"accountId": account_id, "conversationId": cid, "text": body}),
+        ]
+    attempts += [
+        (f"{ZERNIO_BASE}/v1/messages", {"accountId": account_id, "platform": "whatsapp", "to": to, "text": body}),
+        (f"{ZERNIO_BASE}/v1/messages", {"profileId": ZERNIO_PROFILE_ID, "accountId": account_id,
+                                        "platform": "whatsapp", "to": to, "text": body}),
+    ]
+    for url, payload in attempts:
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=12)
+            if r.status_code < 300:
+                print(f"[zernio] sent ok ({url})")
+                return
+            print(f"[zernio] try failed {r.status_code} ({url}): {r.text[:200]}")
+        except requests.RequestException as exc:
+            print(f"[zernio] try error ({url}): {exc}")
+    print("[zernio] all send attempts failed")
 
 
 def deliver(cfg: ClientConfig, to: str, text: str) -> None:
