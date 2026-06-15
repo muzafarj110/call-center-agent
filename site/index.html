@@ -3,98 +3,311 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AIBusinessAutomation — WhatsApp AI Assistant for Any Business</title>
+<title>AIBusinessAutomation — A WhatsApp AI agent for your business</title>
+<meta name="description" content="Turn WhatsApp into a 24/7 AI assistant that takes orders, books appointments, and replies in Arabic and English — for clinics, restaurants, pharmacies, groceries and more." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Spline+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root{--green:#1f9d55;--green-d:#177a42;--ink:#10241b;--muted:#5b6b63;--bg:#f6faf7;--line:#e3ece7;}
+  :root{
+    --green:#10b46b; --green-d:#0c8d54; --green-deep:#063d29;
+    --ink:#0e1a14; --body:#33433b; --muted:#6c7d74;
+    --bg:#f4f6f3; --paper:#ffffff; --line:#e4eae5; --soft:#eef4ef;
+    --shadow:0 1px 2px rgba(8,30,20,.05), 0 12px 32px -12px rgba(8,30,20,.18);
+    --shadow-sm:0 1px 2px rgba(8,30,20,.06);
+  }
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);line-height:1.5;}
-  .nav{display:flex;justify-content:space-between;align-items:center;padding:18px 24px;max-width:1100px;margin:0 auto;}
-  .brand{font-weight:800;font-size:20px;color:var(--green-d);}
-  .brand span{color:var(--ink);}
-  .nav a{margin-left:18px;text-decoration:none;color:var(--ink);font-weight:600;font-size:14px;}
-  .nav a.cta{background:var(--green);color:#fff;padding:9px 16px;border-radius:9px;}
-  .hero{max-width:820px;margin:0 auto;text-align:center;padding:64px 24px 40px;}
-  .hero h1{font-size:42px;line-height:1.15;letter-spacing:-.5px;}
-  .hero h1 em{color:var(--green-d);font-style:normal;}
-  .hero p{font-size:18px;color:var(--muted);margin:18px auto 0;max-width:620px;}
-  .btns{margin-top:30px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
-  .btn{padding:14px 24px;border-radius:11px;font-weight:700;font-size:15px;text-decoration:none;display:inline-block;}
-  .btn-primary{background:var(--green);color:#fff;}
-  .btn-primary:hover{background:var(--green-d);}
-  .btn-ghost{background:#fff;color:var(--ink);border:1px solid var(--line);}
-  .tag{display:inline-block;background:#e9f7ef;color:var(--green-d);font-weight:700;font-size:12px;padding:6px 12px;border-radius:999px;margin-bottom:18px;}
-  .grid{max-width:1000px;margin:30px auto 0;padding:0 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;}
-  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;}
-  .card h3{font-size:17px;margin-bottom:8px;}
-  .card p{color:var(--muted);font-size:14px;}
-  .ico{font-size:26px;margin-bottom:10px;}
-  .types{max-width:1000px;margin:40px auto 0;padding:0 24px;text-align:center;}
-  .types h2{font-size:26px;margin-bottom:6px;}
-  .types .sub{color:var(--muted);margin-bottom:22px;}
-  .chips{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;}
-  .chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:10px 18px;font-weight:600;font-size:14px;}
-  .band{max-width:760px;margin:56px auto;padding:40px 24px;text-align:center;background:#10241b;color:#fff;border-radius:20px;}
-  .band h2{font-size:26px;}
-  .band p{color:#c7d6cd;margin:10px 0 22px;}
-  .band .btn-primary{background:var(--green);}
-  footer{text-align:center;color:var(--muted);font-size:13px;padding:30px;}
-  @media(max-width:600px){.hero h1{font-size:32px;}}
+  html{scroll-behavior:smooth;}
+  :target{scroll-margin-top:90px;}
+  a[href^="#"]{scroll-margin-top:90px;}
+  body{font-family:"Spline Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+       color:var(--body);background:var(--bg);line-height:1.6;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.display{font-family:"Space Grotesk",sans-serif;color:var(--ink);letter-spacing:-.02em;line-height:1.08;}
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 24px;}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:15px;
+       padding:13px 22px;border-radius:12px;border:1px solid transparent;cursor:pointer;transition:.15s;}
+  .btn-primary{background:var(--green);color:#fff;box-shadow:var(--shadow-sm);}
+  .btn-primary:hover{background:var(--green-d);transform:translateY(-1px);}
+  .btn-ghost{background:var(--paper);color:var(--ink);border-color:var(--line);}
+  .btn-ghost:hover{border-color:#cdd9d0;}
+  .btn-lg{padding:15px 26px;font-size:16px;border-radius:13px;}
+
+  /* nav */
+  header{position:sticky;top:0;z-index:50;background:rgba(244,246,243,.82);backdrop-filter:blur(10px);border-bottom:1px solid transparent;transition:.2s;}
+  header.scrolled{border-color:var(--line);background:rgba(244,246,243,.94);}
+  .nav{display:flex;align-items:center;justify-content:space-between;height:70px;}
+  .brand{display:flex;align-items:center;gap:9px;font-family:"Space Grotesk";font-weight:700;font-size:19px;color:var(--ink);}
+  .logo{width:30px;height:30px;border-radius:9px;background:var(--green);display:grid;place-items:center;color:#fff;font-size:16px;box-shadow:var(--shadow-sm);}
+  .nav-links{display:flex;align-items:center;gap:30px;font-size:15px;font-weight:500;color:var(--body);}
+  .nav-links a:hover{color:var(--ink);}
+  .nav-cta{display:flex;align-items:center;gap:12px;}
+  .menu-btn{display:none;background:var(--paper);border:1px solid var(--line);border-radius:10px;width:42px;height:42px;font-size:17px;cursor:pointer;align-items:center;justify-content:center;color:var(--ink);}
+  @media(max-width:860px){
+    .nav-links{position:fixed;top:70px;left:0;right:0;background:var(--paper);border-bottom:1px solid var(--line);
+               flex-direction:column;align-items:stretch;gap:0;padding:6px 0;box-shadow:var(--shadow);
+               transform:translateY(-14px);opacity:0;pointer-events:none;transition:transform .22s ease,opacity .22s ease;}
+    .nav-links a{padding:14px 24px;border-bottom:1px solid var(--soft);}
+    header.nav-open .nav-links{transform:translateY(0);opacity:1;pointer-events:auto;}
+    .menu-btn{display:flex;}
+    .nav-cta .ghost-hide{display:none;}
+  }
+
+  /* hero */
+  .hero{padding:74px 0 30px;display:grid;grid-template-columns:1.05fr .95fr;gap:54px;align-items:center;}
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;background:var(--soft);border:1px solid var(--line);
+           color:var(--green-d);font-weight:600;font-size:13px;padding:6px 13px;border-radius:999px;margin-bottom:22px;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(16,180,107,.18);}
+  .hero h1{font-size:54px;margin-bottom:20px;}
+  .hero h1 .hl{color:var(--green-d);position:relative;white-space:nowrap;}
+  .hero h1 .hl::after{content:"";position:absolute;left:0;right:0;bottom:4px;height:11px;background:rgba(16,180,107,.18);border-radius:4px;z-index:-1;}
+  .hero p.lead{font-size:18px;color:var(--body);max-width:540px;margin-bottom:30px;}
+  .hero-cta{display:flex;gap:13px;flex-wrap:wrap;}
+  .hero-meta{margin-top:26px;display:flex;gap:22px;flex-wrap:wrap;color:var(--muted);font-size:14px;}
+  .hero-meta b{color:var(--ink);font-family:"Space Grotesk";}
+  @media(max-width:920px){.hero{grid-template-columns:1fr;padding-top:48px;gap:36px;}.hero h1{font-size:40px;}}
+
+  /* phone mockup */
+  .phone{justify-self:center;width:330px;background:#0c1712;border-radius:34px;padding:11px;box-shadow:0 30px 70px -25px rgba(6,40,26,.6);border:1px solid #14271d;}
+  .screen{background:linear-gradient(180deg,#e9efe9,#dfe8e0);border-radius:25px;overflow:hidden;}
+  .wa-top{background:var(--green-deep);color:#eafff3;padding:14px 16px;display:flex;align-items:center;gap:11px;}
+  .wa-ava{width:38px;height:38px;border-radius:50%;background:#1f7a52;display:grid;place-items:center;font-size:17px;}
+  .wa-name{font-weight:600;font-size:15px;line-height:1.2;}
+  .wa-status{font-size:11.5px;color:#9fd9bd;}
+  .wa-body{padding:16px 14px;display:flex;flex-direction:column;gap:9px;min-height:330px;
+           background-image:radial-gradient(rgba(16,120,80,.06) 1px,transparent 1px);background-size:18px 18px;}
+  .bub{max-width:80%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.45;box-shadow:0 1px 1px rgba(0,0,0,.05);}
+  .in{background:#fff;border-top-left-radius:4px;align-self:flex-start;color:#16241c;}
+  .out{background:#d6f3e2;border-top-right-radius:4px;align-self:flex-end;color:#0c3b27;}
+  .bub .t{display:block;font-size:10px;color:#88998f;text-align:right;margin-top:3px;}
+  .typing{align-self:flex-start;background:#fff;border-radius:14px;border-top-left-radius:4px;padding:11px 14px;display:flex;gap:4px;}
+  .typing span{width:6px;height:6px;border-radius:50%;background:#b7c4bb;animation:bl 1.2s infinite;}
+  .typing span:nth-child(2){animation-delay:.2s;} .typing span:nth-child(3){animation-delay:.4s;}
+  @keyframes bl{0%,60%,100%{opacity:.3;transform:translateY(0);}30%{opacity:1;transform:translateY(-3px);}}
+
+  /* trust strip */
+  .trust{border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:22px 0;margin-top:40px;}
+  .trust .wrap{display:flex;align-items:center;gap:28px;flex-wrap:wrap;justify-content:center;color:var(--muted);font-size:14px;font-weight:500;}
+  .trust .chip{display:flex;align-items:center;gap:8px;}
+
+  /* sections */
+  section.block{padding:84px 0;}
+  .sec-head{max-width:680px;margin-bottom:46px;}
+  .kicker{color:var(--green-d);font-weight:600;font-size:13.5px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;}
+  .sec-head h2{font-size:36px;margin-bottom:14px;}
+  .sec-head p{font-size:17px;color:var(--body);}
+
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+  @media(max-width:880px){.grid3{grid-template-columns:1fr;}}
+  .feat{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:26px;transition:.18s;}
+  .feat:hover{box-shadow:var(--shadow);transform:translateY(-3px);}
+  .feat .ic{width:46px;height:46px;border-radius:13px;background:var(--soft);display:grid;place-items:center;font-size:22px;margin-bottom:16px;}
+  .feat h3{font-size:18px;margin-bottom:7px;}
+  .feat p{font-size:14.5px;color:var(--muted);}
+
+  /* steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:30px;counter-reset:s;}
+  @media(max-width:880px){.steps{grid-template-columns:1fr;}}
+  .step{position:relative;padding-top:14px;}
+  .step .num{font-family:"Space Grotesk";font-weight:700;font-size:15px;color:#fff;background:var(--green);width:34px;height:34px;border-radius:10px;display:grid;place-items:center;margin-bottom:16px;box-shadow:var(--shadow-sm);}
+  .step h3{font-size:19px;margin-bottom:8px;}
+  .step p{font-size:15px;color:var(--muted);}
+
+  /* split / types */
+  .types-wrap{background:var(--green-deep);color:#dff3e8;border-radius:26px;padding:54px 46px;}
+  .types-wrap h2{color:#fff;font-size:32px;margin-bottom:10px;}
+  .types-wrap .sub{color:#a6d8bf;margin-bottom:26px;}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;}
+  .chips span{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:11px;padding:11px 16px;font-weight:500;font-size:14.5px;color:#eafff3;}
+
+  /* stats band */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;text-align:left;}
+  @media(max-width:760px){.stats{grid-template-columns:1fr 1fr;}}
+  .stat .n{font-family:"Space Grotesk";font-weight:700;font-size:38px;color:var(--ink);line-height:1;}
+  .stat .l{color:var(--muted);font-size:14px;margin-top:8px;}
+
+  /* CTA */
+  .cta{background:var(--paper);border:1px solid var(--line);border-radius:24px;padding:54px;text-align:center;box-shadow:var(--shadow);}
+  .cta h2{font-size:34px;margin-bottom:12px;}
+  .cta p{font-size:17px;color:var(--body);max-width:520px;margin:0 auto 26px;}
+
+  /* footer */
+  footer{border-top:1px solid var(--line);padding:40px 0;margin-top:30px;}
+  .foot{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:14px;}
+  .foot a{color:var(--muted);} .foot a:hover{color:var(--ink);}
 </style>
 </head>
 <body>
-  <div class="nav">
-    <div class="brand">AIBusinessAutomation</div>
-    <div>
+
+<header id="hdr">
+  <div class="wrap nav">
+    <a class="brand" href="#top"><span class="logo">✦</span> AIBusinessAutomation</a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="pricing.html">Pricing</a>
+      <a href="contact.html">Contact</a>
       <a href="admin.html">Admin</a>
-      <a class="cta" href="app.html">Get started</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost ghost-hide" href="app.html">Sign in</a>
+      <a class="btn btn-primary" href="app.html">Get started</a>
+      <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false">☰</button>
     </div>
   </div>
+</header>
 
+<a id="top"></a>
+<main class="wrap">
   <section class="hero">
-    <span class="tag">WhatsApp AI · Arabic + English</span>
-    <h1>Turn WhatsApp into your <em>24/7 AI assistant</em></h1>
-    <p>AIBusinessAutomation answers customers, takes orders, books appointments, and saves
-       everything automatically — for grocery shops, pharmacies, restaurants,
-       clinics, and more. No app to install. It just works on WhatsApp.</p>
-    <div class="btns">
-      <a class="btn btn-primary" href="app.html">Onboard your business →</a>
-      <a class="btn btn-ghost" href="admin.html">Admin dashboard</a>
+    <div>
+      <span class="eyebrow"><span class="dot"></span> Works on the WhatsApp number you already have</span>
+      <h1>Your business, answered on <span class="hl">WhatsApp</span> — 24/7.</h1>
+      <p class="lead">AIBusinessAutomation turns WhatsApp into an AI agent that takes orders, books appointments, and answers customers in Arabic &amp; English — automatically, around the clock.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary btn-lg" href="app.html">Set up your assistant →</a>
+        <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+      </div>
+      <div class="hero-meta">
+        <span><b>No app</b> for customers to install</span>
+        <span><b>Arabic + English</b> out of the box</span>
+        <span><b>Live</b> in minutes</span>
+      </div>
+    </div>
+
+    <div class="phone" aria-hidden="true">
+      <div class="screen">
+        <div class="wa-top">
+          <div class="wa-ava">🩺</div>
+          <div><div class="wa-name">Pedra Poly Clinic</div><div class="wa-status">online · typically replies instantly</div></div>
+        </div>
+        <div class="wa-body">
+          <div class="bub in">Hi 👋 I'd like to book a dental appointment<span class="t">9:14</span></div>
+          <div class="bub out">Of course! We have Dr. Sara available tomorrow at 10:00 or 2:30 PM. Which works for you?<span class="t">9:14</span></div>
+          <div class="bub in">Tomorrow at 10 please<span class="t">9:15</span></div>
+          <div class="bub out">Done ✅ Your appointment is confirmed.<br>Booking ID: <b>APT-4193</b>. You'll get a reminder beforehand.<span class="t">9:15</span></div>
+          <div class="typing"><span></span><span></span><span></span></div>
+        </div>
+      </div>
     </div>
   </section>
+</main>
 
-  <section class="grid">
-    <div class="card"><div class="ico">🛒</div><h3>Takes orders</h3>
-      <p>Customers chat naturally; the assistant builds the cart, calculates totals, collects the address, and saves the order.</p></div>
-    <div class="card"><div class="ico">📅</div><h3>Books appointments</h3>
-      <p>For clinics & hospitals: collects patient details, offers available slots, and confirms the booking with an ID.</p></div>
-    <div class="card"><div class="ico">🌐</div><h3>Arabic & English</h3>
-      <p>Detects each customer's language and replies in it — no mixing, no switching.</p></div>
-    <div class="card"><div class="ico">🙋</div><h3>Escalates to humans</h3>
-      <p>Complaints or "I want a manager" are routed straight to your team.</p></div>
-    <div class="card"><div class="ico">🧠</div><h3>Remembers customers</h3>
-      <p>Saves delivery addresses and details so repeat customers are served faster.</p></div>
-    <div class="card"><div class="ico">⚡</div><h3>Live in minutes</h3>
-      <p>Fill one form, connect your WhatsApp number, and your assistant is online.</p></div>
-  </section>
+<div class="trust">
+  <div class="wrap">
+    <span class="chip">🛒 Grocery</span>
+    <span class="chip">💊 Pharmacy</span>
+    <span class="chip">🍽️ Restaurant</span>
+    <span class="chip">🩺 Clinic</span>
+    <span class="chip">🏥 Hospital</span>
+    <span class="chip">🛍️ Retail</span>
+  </div>
+</div>
 
-  <section class="types">
-    <h2>Built for any business</h2>
-    <p class="sub">One platform, tailored automatically to your business type.</p>
-    <div class="chips">
-      <span class="chip">Baqala / Grocery</span><span class="chip">Supermarket</span>
-      <span class="chip">Pharmacy</span><span class="chip">Restaurant</span>
-      <span class="chip">Cafeteria</span><span class="chip">Clinic</span>
-      <span class="chip">Hospital</span><span class="chip">Retail</span>
+<!-- FEATURES -->
+<section class="block" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">What it does</div>
+      <h2>One assistant. Every conversation handled.</h2>
+      <p>It understands what each customer wants and acts on it — no scripts, no menus, no waiting for staff.</p>
     </div>
-  </section>
+    <div class="grid3">
+      <div class="feat"><div class="ic">🛒</div><h3>Takes orders</h3><p>Builds the cart, calculates totals, collects the delivery address, and saves the order with an ID.</p></div>
+      <div class="feat"><div class="ic">📅</div><h3>Books appointments</h3><p>Collects patient details, offers open slots, and confirms the booking — perfect for clinics and salons.</p></div>
+      <div class="feat"><div class="ic">🌍</div><h3>Arabic &amp; English</h3><p>Detects each customer's language and replies in it — no mixing, no switching, fully native.</p></div>
+      <div class="feat"><div class="ic">🙋</div><h3>Escalates to humans</h3><p>Complaints or "I want a manager" are routed straight to your team, with full context.</p></div>
+      <div class="feat"><div class="ic">🧠</div><h3>Remembers customers</h3><p>Saves names and delivery addresses so returning customers are served in seconds.</p></div>
+      <div class="feat"><div class="ic">📊</div><h3>Live dashboard</h3><p>See pending, in-progress and completed orders in one place, and update statuses in a tap.</p></div>
+    </div>
+  </div>
+</section>
 
-  <section class="band">
-    <h2>Ready to go live?</h2>
-    <p>Set up your WhatsApp AI assistant in a few minutes.</p>
-    <a class="btn btn-primary" href="app.html">Onboard your business →</a>
-  </section>
+<!-- HOW -->
+<section class="block" id="how" style="background:var(--paper);border-top:1px solid var(--line);border-bottom:1px solid var(--line);">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">How it works</div>
+      <h2>Live in three simple steps.</h2>
+      <p>No developers, no integrations to wrestle with. A guided setup gets you running fast.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="num">1</div><h3>Sign in &amp; set up</h3><p>Enter your email, verify with a code, and a short wizard captures your business details and services.</p></div>
+      <div class="step"><div class="num">2</div><h3>Connect WhatsApp</h3><p>Link your WhatsApp Business number in a click — or get a new one provisioned for you.</p></div>
+      <div class="step"><div class="num">3</div><h3>Go live</h3><p>Your AI agent starts replying instantly. Watch every order and booking land on your dashboard.</p></div>
+    </div>
+  </div>
+</section>
 
-  <footer>© <span id="y"></span> AIBusinessAutomation · Powered by WhatsApp AI</footer>
-  <script>document.getElementById("y").textContent=new Date().getFullYear();</script>
+<!-- INDUSTRIES -->
+<section class="block" id="industries">
+  <div class="wrap">
+    <div class="types-wrap">
+      <h2>Built for any business.</h2>
+      <p class="sub">The assistant tailors itself automatically to your business type.</p>
+      <div class="chips">
+        <span>Baqala / Grocery</span><span>Supermarket</span><span>Pharmacy</span>
+        <span>Restaurant</span><span>Cafeteria</span><span>Clinic</span>
+        <span>Hospital</span><span>Retail shop</span><span>Custom</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section class="block" style="padding-top:0;">
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat"><div class="n">24/7</div><div class="l">Always answering, even after hours</div></div>
+      <div class="stat"><div class="n">2</div><div class="l">Languages — Arabic &amp; English</div></div>
+      <div class="stat"><div class="n">~30s</div><div class="l">To reply, not 30 minutes</div></div>
+      <div class="stat"><div class="n">0</div><div class="l">Apps for your customers to install</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="block" style="padding-top:10px;">
+  <div class="wrap">
+    <div class="cta">
+      <div class="kicker" style="display:block;">Ready when you are</div>
+      <h2>Put your business on autopilot.</h2>
+      <p>Set up your WhatsApp AI assistant in a few minutes — no code, no contracts.</p>
+      <a class="btn btn-primary btn-lg" href="app.html">Get started free →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span>© <span id="y"></span> AIBusinessAutomation · WhatsApp AI for business</span>
+    <span style="display:flex;gap:20px;">
+      <a href="app.html">Get started</a>
+      <a href="admin.html">Admin</a>
+      <a href="#features">Features</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  document.getElementById("y").textContent = new Date().getFullYear();
+  const hdr = document.getElementById("hdr");
+  const onScroll = () => hdr.classList.toggle("scrolled", window.scrollY > 8);
+  onScroll(); window.addEventListener("scroll", onScroll, {passive:true});
+
+  // Mobile menu
+  const menuBtn = document.getElementById("menuBtn");
+  const toggleMenu = (open) => {
+    const isOpen = open===undefined ? !hdr.classList.contains("nav-open") : open;
+    hdr.classList.toggle("nav-open", isOpen);
+    menuBtn.setAttribute("aria-expanded", isOpen);
+    menuBtn.textContent = isOpen ? "✕" : "☰";
+  };
+  menuBtn.addEventListener("click", () => toggleMenu());
+  // close menu after tapping a link
+  document.querySelectorAll(".nav-links a").forEach(a => a.addEventListener("click", () => toggleMenu(false)));
+  // close on resize back to desktop
+  window.addEventListener("resize", () => { if(window.innerWidth>860) toggleMenu(false); });
+</script>
 </body>
 </html>

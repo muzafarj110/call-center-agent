@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pricing — AIBusinessAutomation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Spline+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--green:#10b46b;--green-d:#0c8d54;--green-deep:#063d29;--ink:#0e1a14;--body:#33433b;--muted:#6c7d74;--bg:#f4f6f3;--paper:#fff;--line:#e4eae5;--soft:#eef4ef;--shadow:0 1px 2px rgba(8,30,20,.05),0 12px 32px -12px rgba(8,30,20,.18);}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:"Spline Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--body);background:var(--bg);line-height:1.6;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3{font-family:"Space Grotesk",sans-serif;color:var(--ink);letter-spacing:-.02em;}
+  a{color:inherit;text-decoration:none;}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 24px;}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:15px;padding:13px 22px;border-radius:12px;border:1px solid transparent;cursor:pointer;transition:.15s;width:100%;}
+  .btn-primary{background:var(--green);color:#fff;} .btn-primary:hover{background:var(--green-d);}
+  .btn-ghost{background:var(--paper);color:var(--ink);border-color:var(--line);} .btn-ghost:hover{border-color:#cdd9d0;}
+  header{position:sticky;top:0;z-index:50;background:rgba(244,246,243,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);}
+  .nav{display:flex;align-items:center;justify-content:space-between;height:70px;}
+  .brand{display:flex;align-items:center;gap:9px;font-family:"Space Grotesk";font-weight:700;font-size:19px;color:var(--ink);}
+  .logo{width:30px;height:30px;border-radius:9px;background:var(--green);display:grid;place-items:center;color:#fff;font-size:16px;}
+  .nav-links{display:flex;align-items:center;gap:28px;font-size:15px;font-weight:500;}
+  .nav-links a:hover{color:var(--ink);}
+  .nav-cta{display:flex;gap:12px;align-items:center;}
+  .nav-cta .btn{width:auto;}
+  .menu-btn{display:none;background:var(--paper);border:1px solid var(--line);border-radius:10px;width:42px;height:42px;font-size:17px;cursor:pointer;color:var(--ink);align-items:center;justify-content:center;}
+  @media(max-width:820px){
+    .nav-links{position:fixed;top:70px;left:0;right:0;background:var(--paper);border-bottom:1px solid var(--line);
+               flex-direction:column;align-items:stretch;gap:0;padding:6px 0;box-shadow:var(--shadow);
+               transform:translateY(-14px);opacity:0;pointer-events:none;transition:.22s;}
+    .nav-links a{padding:14px 24px;border-bottom:1px solid var(--soft);}
+    header.nav-open .nav-links{transform:translateY(0);opacity:1;pointer-events:auto;}
+    .menu-btn{display:flex;}
+    .nav-cta .btn-ghost{display:none;}
+  }
+  .head{text-align:center;max-width:680px;margin:60px auto 14px;}
+  .kicker{color:var(--green-d);font-weight:600;font-size:13.5px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;}
+  .head h1{font-size:42px;margin-bottom:14px;}
+  .head p{font-size:18px;}
+  .toggle{display:flex;justify-content:center;gap:8px;margin:24px 0 8px;}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin:36px 0 70px;align-items:start;}
+  @media(max-width:900px){.grid{grid-template-columns:1fr;max-width:420px;margin-inline:auto;}}
+  .plan{background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:30px;display:flex;flex-direction:column;gap:16px;box-shadow:var(--shadow);}
+  .plan.feat{border-color:var(--green);box-shadow:0 0 0 1px var(--green),var(--shadow);position:relative;}
+  .badge{position:absolute;top:-12px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;}
+  .plan h3{font-size:20px;}
+  .price{font-family:"Space Grotesk";font-weight:700;color:var(--ink);font-size:40px;line-height:1;}
+  .price span{font-size:15px;color:var(--muted);font-weight:500;font-family:"Spline Sans";}
+  .plan .desc{color:var(--muted);font-size:14.5px;}
+  ul{list-style:none;display:flex;flex-direction:column;gap:10px;font-size:14.5px;color:var(--body);}
+  li{display:flex;gap:10px;align-items:flex-start;}
+  li .ck{color:var(--green);font-weight:800;}
+  .note{text-align:center;color:var(--muted);font-size:14px;margin-bottom:60px;}
+  #msg{max-width:520px;margin:0 auto 30px;padding:13px;border-radius:12px;font-size:14px;display:none;text-align:center;}
+  .err{background:#fdecea;color:#b42318;} .ok{background:#e9f7ef;color:#177a42;}
+  footer{border-top:1px solid var(--line);padding:36px 0;color:var(--muted);font-size:14px;text-align:center;}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="index.html"><span class="logo">✦</span> AIBusinessAutomation</a>
+    <nav class="nav-links">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#how">How it works</a>
+      <a href="pricing.html" style="color:var(--ink);font-weight:600;">Pricing</a>
+      <a href="contact.html">Contact</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn btn-ghost" href="app.html">Sign in</a>
+      <a class="btn btn-primary" href="app.html">Get started</a>
+      <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="head">
+    <div class="kicker">Pricing</div>
+    <h1>Simple plans that scale with you.</h1>
+    <p>Start free. Upgrade when your WhatsApp gets busy. Cancel anytime.</p>
+  </div>
+
+  <div id="msg"></div>
+
+  <div class="grid">
+    <div class="plan">
+      <h3>Starter</h3>
+      <div class="price">Free</div>
+      <div class="desc">Everything you need to launch your assistant.</div>
+      <ul>
+        <li><span class="ck">✓</span> 1 WhatsApp business</li>
+        <li><span class="ck">✓</span> AI replies in Arabic &amp; English</li>
+        <li><span class="ck">✓</span> Orders &amp; appointments</li>
+        <li><span class="ck">✓</span> Live dashboard</li>
+        <li><span class="ck">✓</span> 100 conversations / month</li>
+      </ul>
+      <button class="btn btn-ghost" onclick="choose('free')">Start free</button>
+    </div>
+
+    <div class="plan feat">
+      <span class="badge">Most popular</span>
+      <h3>Pro</h3>
+      <div class="price">$29<span>/month</span></div>
+      <div class="desc">For growing shops, clinics and restaurants.</div>
+      <ul>
+        <li><span class="ck">✓</span> Everything in Starter</li>
+        <li><span class="ck">✓</span> Unlimited conversations</li>
+        <li><span class="ck">✓</span> Dashboard inbox &amp; manual replies</li>
+        <li><span class="ck">✓</span> Customer memory &amp; escalation</li>
+        <li><span class="ck">✓</span> Priority support</li>
+      </ul>
+      <button class="btn btn-primary" onclick="choose('pro')">Choose Pro</button>
+    </div>
+
+    <div class="plan">
+      <h3>Business</h3>
+      <div class="price">$99<span>/month</span></div>
+      <div class="desc">Multiple locations &amp; higher volume.</div>
+      <ul>
+        <li><span class="ck">✓</span> Everything in Pro</li>
+        <li><span class="ck">✓</span> Up to 5 WhatsApp numbers</li>
+        <li><span class="ck">✓</span> Team accounts</li>
+        <li><span class="ck">✓</span> Analytics &amp; exports</li>
+        <li><span class="ck">✓</span> Dedicated onboarding</li>
+      </ul>
+      <button class="btn btn-ghost" onclick="choose('business')">Choose Business</button>
+    </div>
+  </div>
+
+  <p class="note">Prices in USD. Billed monthly via secure Stripe checkout. Taxes may apply.</p>
+</div>
+
+<footer><div class="wrap">© <span id="y"></span> AIBusinessAutomation</div></footer>
+
+<script>
+  const API_BASE = "https://production-call-center.up.railway.app";
+  document.getElementById("y").textContent = new Date().getFullYear();
+  // Mobile menu
+  (function(){
+    const hdr=document.querySelector("header"), b=document.getElementById("menuBtn");
+    const t=(o)=>{const open=o===undefined?!hdr.classList.contains("nav-open"):o;hdr.classList.toggle("nav-open",open);b.textContent=open?"✕":"☰";};
+    b.addEventListener("click",()=>t());
+    document.querySelectorAll(".nav-links a").forEach(a=>a.addEventListener("click",()=>t(false)));
+    window.addEventListener("resize",()=>{if(window.innerWidth>820)t(false);});
+  })();
+  function flash(text, ok){ const m=document.getElementById("msg"); m.className=ok?"ok":"err"; m.textContent=text; m.style.display="block"; window.scrollTo({top:0,behavior:"smooth"}); }
+
+  async function choose(plan){
+    if(plan==="free"){ location.href="app.html"; return; }
+    const token = localStorage.getItem("aishop_token");
+    if(!token){ // must be signed in to subscribe
+      flash("Please sign in or create your account first — redirecting…", true);
+      setTimeout(()=>location.href="app.html?plan="+plan, 1200); return;
+    }
+    try{
+      const r = await fetch(API_BASE+"/billing/checkout", {
+        method:"POST", headers:{"Authorization":"Bearer "+token,"Content-Type":"application/json"},
+        body: JSON.stringify({plan})
+      });
+      const d = await r.json();
+      if(d.url){ location.href = d.url; }      // Stripe Checkout
+      else flash(d.error || "Could not start checkout.", false);
+    }catch(e){ flash("Network error: "+e.message, false); }
+  }
+</script>
+</body>
+</html>

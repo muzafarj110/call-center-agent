@@ -78,7 +78,9 @@
     <div class="topright">
       <nav class="navlinks hidden" id="navlinks">
         <a onclick="goDashboard()">📊 Dashboard</a>
+        <a onclick="goMessages()">💬 Messages</a>
         <a onclick="editSetup()">✏️ Edit setup</a>
+        <a onclick="goUpgrade()" id="planLink">⭐ Upgrade</a>
       </nav>
       <span class="who" id="who"></span>
       <button id="logoutBtn" class="hidden" onclick="logout()">Log out</button>
@@ -144,7 +146,32 @@
     <div id="orderList"></div>
   </div>
 
+  <!-- ============ MESSAGES (inbox) ============ -->
+  <div id="screen-messages" class="dash hidden">
+    <h2 style="margin-bottom:14px;">Messages</h2>
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start;">
+      <div class="card" style="padding:0;max-height:560px;overflow:auto;">
+        <div style="padding:12px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;">
+          <b>Conversations</b>
+          <button class="tab" style="padding:5px 10px;" onclick="loadConversations()">↻</button>
+        </div>
+        <div id="convoList"><div class="empty">Loading…</div></div>
+      </div>
+      <div class="card" id="threadCard">
+        <div id="threadHead" style="font-weight:700;margin-bottom:10px;">Select a conversation</div>
+        <div id="threadBody" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto;margin-bottom:12px;"></div>
+        <div id="replyBox" style="display:none;gap:8px;">
+          <input id="replyText" placeholder="Type a reply…" style="flex:1;" onkeydown="if(event.key==='Enter')sendReply()" />
+          <button class="big-btn" style="width:auto;margin:0;padding:11px 16px;" onclick="sendReply()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <script>
+  const MSG_STYLE = document.createElement("style");
+  MSG_STYLE.textContent = ".convo{padding:12px 14px;border-bottom:1px solid #f1f5f3;cursor:pointer;}.convo:hover{background:#fafdfb;}.convo.sel{background:var(--soft);}.convo .c-from{font-weight:700;font-size:14px;}.convo .c-last{color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}#replyBox{display:flex;}.mbub{max-width:78%;padding:9px 12px;border-radius:13px;font-size:14px;line-height:1.4;}.mbub.in{background:#fff;border:1px solid var(--line);align-self:flex-start;border-top-left-radius:4px;}.mbub.out{background:#d6f3e2;color:#0c3b27;align-self:flex-end;border-top-right-radius:4px;}";
+  document.head.appendChild(MSG_STYLE);
   const API_BASE = "https://production-call-center.up.railway.app";
   const TKEY = "aishop_token";
   let DATA = {pending:[],current:[],history:[]};
@@ -152,7 +179,7 @@
 
   function token(){ return localStorage.getItem(TKEY) || ""; }
   function authH(extra){ return Object.assign({"Authorization":"Bearer "+token()}, extra||{}); }
-  function show(id){ ["screen-email","screen-otp","screen-wizard","screen-dashboard"].forEach(s=>document.getElementById(s).classList.add("hidden")); document.getElementById(id).classList.remove("hidden"); }
+  function show(id){ ["screen-email","screen-otp","screen-wizard","screen-dashboard","screen-messages"].forEach(s=>document.getElementById(s).classList.add("hidden")); document.getElementById(id).classList.remove("hidden"); }
   function flash(id,text,ok){ const m=document.getElementById(id); m.className="msg "+(ok?"ok":"err"); m.textContent=text; m.style.display="block"; }
   function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
 
@@ -203,9 +230,21 @@
       document.getElementById("who").innerHTML="<b>"+esc(me.email)+"</b>";
       document.getElementById("logoutBtn").classList.remove("hidden");
       document.getElementById("navlinks").classList.toggle("hidden", !me.setup_complete);
-      if(me.setup_complete){ document.getElementById("dashTitle").textContent=me.business_name||"Your dashboard"; show("screen-dashboard"); loadDashboard(); }
+      if(me.setup_complete){
+        document.getElementById("dashTitle").textContent=me.business_name||"Your dashboard";
+        show("screen-dashboard"); loadDashboard();
+        if(window._pendingPlan){ const p=window._pendingPlan; window._pendingPlan=null; doCheckout(p); }
+      }
       else { startWizard(); }
     }catch(e){ show("screen-email"); }
+  }
+
+  async function doCheckout(plan){
+    try{
+      const r=await fetch(API_BASE+"/billing/checkout",{method:"POST",headers:authH({"Content-Type":"application/json"}),body:JSON.stringify({plan})});
+      const d=await r.json();
+      if(d.url){ location.href=d.url; } else if(d.error){ alert(d.error); }
+    }catch(e){ alert("Network error: "+e.message); }
   }
 
   function goDashboard(){ show("screen-dashboard"); loadDashboard(); }
@@ -329,6 +368,7 @@
   // ---------- DASHBOARD ----------
   async function loadDashboard(){
     refreshWaBanner();
+    refreshPlan();
     try{
       const r=await fetch(API_BASE+"/my/orders",{headers:authH()});
       if(r.status===401){ logout(); return; }
@@ -366,12 +406,67 @@
     loadDashboard();
   }
 
+  // ---------- MESSAGES (inbox) ----------
+  let CUR_CUST = "";
+  function goMessages(){ show("screen-messages"); loadConversations(); }
+  async function loadConversations(){
+    const el=document.getElementById("convoList");
+    try{
+      const r=await fetch(API_BASE+"/my/conversations",{headers:authH()});
+      const d=await r.json(); const list=d.conversations||[];
+      if(!list.length){ el.innerHTML='<div class="empty">No conversations yet.</div>'; return; }
+      el.innerHTML=list.map(c=>`<div class="convo ${c.customer===CUR_CUST?'sel':''}" onclick="openConvo('${esc(c.customer)}')">
+        <div class="c-from">${esc(c.customer)}</div>
+        <div class="c-last">${c.direction==='out'?'You: ':''}${esc(c.last)}</div></div>`).join("");
+    }catch(e){ el.innerHTML='<div class="empty">Could not load.</div>'; }
+  }
+  async function openConvo(cust){
+    CUR_CUST=cust;
+    document.querySelectorAll(".convo").forEach(el=>el.classList.remove("sel"));
+    document.getElementById("threadHead").textContent="Chat with "+cust;
+    document.getElementById("replyBox").style.display="flex";
+    const body=document.getElementById("threadBody"); body.innerHTML='Loading…';
+    try{
+      const r=await fetch(API_BASE+"/my/conversation?customer="+encodeURIComponent(cust),{headers:authH()});
+      const d=await r.json(); const msgs=d.messages||[];
+      body.innerHTML=msgs.map(m=>`<div class="mbub ${m.direction==='in'?'in':'out'}">${esc(m.text)}</div>`).join("")||'<div class="empty">No messages.</div>';
+      body.scrollTop=body.scrollHeight;
+      loadConversations();
+    }catch(e){ body.innerHTML='Could not load.'; }
+  }
+  async function sendReply(){
+    const inp=document.getElementById("replyText"); const text=inp.value.trim();
+    if(!text||!CUR_CUST) return;
+    inp.value="";
+    try{
+      const r=await fetch(API_BASE+"/my/send",{method:"POST",headers:authH({"Content-Type":"application/json"}),body:JSON.stringify({to:CUR_CUST,text})});
+      const d=await r.json();
+      if(d.success){ openConvo(CUR_CUST); } else alert(d.error||"Could not send.");
+    }catch(e){ alert("Network error: "+e.message); }
+  }
+
+  // ---------- BILLING ----------
+  async function refreshPlan(){
+    try{
+      const r=await fetch(API_BASE+"/billing/status",{headers:authH()});
+      const d=await r.json();
+      const link=document.getElementById("planLink");
+      if(d.plan && d.plan!=="free"){ link.textContent="⭐ "+d.plan.charAt(0).toUpperCase()+d.plan.slice(1); }
+      else { link.textContent="⭐ Upgrade"; }
+    }catch(e){}
+  }
+  function goUpgrade(){ location.href="pricing.html"; }
+
   document.getElementById("code").addEventListener("keydown",e=>{ if(e.key==="Enter") verifyOtp(); });
   document.getElementById("email").addEventListener("keydown",e=>{ if(e.key==="Enter") requestOtp(); });
-  // Returning from the Zernio WhatsApp connect flow?
-  const _wa = new URLSearchParams(location.search).get("whatsapp");
-  if(_wa){ setTimeout(()=>alert(_wa==="connected" ? "✅ WhatsApp connected! Your assistant is live." : "WhatsApp connection didn't complete. Please try again."), 400);
-    history.replaceState({}, "", location.pathname); }
+  // Handle return params: WhatsApp connect, billing, and a pending plan from pricing.
+  const _q = new URLSearchParams(location.search);
+  const _wa = _q.get("whatsapp");
+  if(_wa){ setTimeout(()=>alert(_wa==="connected" ? "✅ WhatsApp connected! Your assistant is live." : "WhatsApp connection didn't complete. Please try again."), 400); }
+  const _bill = _q.get("billing");
+  if(_bill==="success"){ setTimeout(()=>alert("🎉 Subscription active — thank you!"), 400); }
+  if(_q.get("plan")){ window._pendingPlan = _q.get("plan"); }   // user came from pricing to subscribe
+  if(_wa||_bill){ history.replaceState({}, "", location.pathname); }
   route();  // entry point
 </script>
 </body>

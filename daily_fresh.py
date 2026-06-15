@@ -1106,25 +1106,33 @@ def send_whatsapp(phone_number_id: str, to: str, text: str) -> None:
         print(f"[wa] send error: {exc}")
 
 
+# conversationId per (account_id, sender) so replies go to the right thread.
+_zernio_convo: dict[tuple, str] = {}
+
+
 def zernio_send(account_id: str, to: str, text: str) -> None:
-    """Send a WhatsApp text via Zernio inbox API (free-form, 24h window)."""
+    """Reply on WhatsApp via Zernio inbox API (free-form, 24h window).
+    Sends by conversationId when known (the inbox reply model)."""
     if not ZERNIO_API_KEY:
         print("[zernio] ZERNIO_API_KEY not set; cannot send")
         return
-    url = f"{ZERNIO_BASE}/v1/messages"
-    payload = {
-        "profileId": ZERNIO_PROFILE_ID,
-        "accountId": account_id,
-        "platform": "whatsapp",
-        "to": to,
-        "text": text[:4096],
-    }
+    cid = _zernio_convo.get((account_id, to))
+    headers = {"Authorization": f"Bearer {ZERNIO_API_KEY}", "Content-Type": "application/json"}
     try:
-        r = requests.post(url, json=payload,
-                          headers={"Authorization": f"Bearer {ZERNIO_API_KEY}",
-                                   "Content-Type": "application/json"}, timeout=15)
+        if cid:
+            url = f"{ZERNIO_BASE}/v1/inbox/conversations/{cid}/messages"
+            r = requests.post(url, json={"accountId": account_id, "message": text[:4096]},
+                              headers=headers, timeout=15)
+        else:
+            url = f"{ZERNIO_BASE}/v1/messages"
+            r = requests.post(url, json={"profileId": ZERNIO_PROFILE_ID,
+                                         "accountId": account_id, "platform": "whatsapp",
+                                         "to": to, "text": text[:4096]},
+                              headers=headers, timeout=15)
         if r.status_code >= 300:
-            print(f"[zernio] send failed {r.status_code}: {r.text[:300]}")
+            print(f"[zernio] send failed {r.status_code} ({url}): {r.text[:300]}")
+        else:
+            print(f"[zernio] sent ok ({url})")
     except requests.RequestException as exc:
         print(f"[zernio] send error: {exc}")
 
@@ -1135,6 +1143,9 @@ def deliver(cfg: ClientConfig, to: str, text: str) -> None:
         zernio_send(cfg.zernio_account_id, to, text)
     else:
         send_whatsapp(cfg.phone_number_id or DEFAULT_PHONE_ID, to, text)
+    # Log outbound for the dashboard inbox (skip manager escalation notices).
+    if to != cfg.escalation_number:
+        log_message(cfg.client_id, to, "out", text)
 
 
 # --- webhook verify (GET) --------------------------------------------------
@@ -1220,6 +1231,7 @@ def _handle_text(cfg: ClientConfig, channel_key: str, wa_id: str, raw_text: str)
             sess.saved_address = existing.get("address", "")
 
     sess.add("user", body)
+    log_message(cfg.client_id, wa_id, "in", body)
 
     # 1) Escalation
     if wants_human(body):
@@ -1726,23 +1738,23 @@ def my_order_status():
 # ---------------------------------------------------------------------------
 # Zernio transport: inbound webhook + WhatsApp connect flow
 # ---------------------------------------------------------------------------
-def _zernio_extract(payload: dict) -> tuple[str, str, str]:
-    """From a Zernio message.received payload, return (account_id, sender, text).
-    Defensive about field names across Zernio's inbox schema."""
+def _zernio_extract(payload: dict) -> tuple[str, str, str, str]:
+    """From a Zernio message.received payload, return
+    (account_id, sender, text, conversation_id)."""
     msg = payload.get("message", {}) or {}
     conv = payload.get("conversation", {}) or {}
     acct = payload.get("account", {}) or {}
-    account_id = str(acct.get("accountId") or acct.get("id") or "").strip()
-    contact = conv.get("contact", {}) or {}
+    sndr = msg.get("sender", {}) or {}
+    account_id = str(acct.get("id") or acct.get("accountId") or "").strip()
     sender = str(
-        msg.get("senderId") or msg.get("from")
-        or contact.get("handle") or contact.get("identifier")
-        or contact.get("platformId") or conv.get("contactId") or ""
-    ).strip()
+        sndr.get("id") or sndr.get("phoneNumber") or msg.get("senderId")
+        or conv.get("participantId") or conv.get("participantUsername") or ""
+    ).strip().lstrip("+")
     text = msg.get("text") or msg.get("body") or ""
     if isinstance(text, dict):
         text = text.get("body", "")
-    return account_id, sender, str(text)
+    conversation_id = str(msg.get("conversationId") or conv.get("id") or "").strip()
+    return account_id, sender, str(text), conversation_id
 
 
 @app.post("/zernio/webhook")
@@ -1758,7 +1770,9 @@ def zernio_webhook():
     payload = request.get_json(silent=True) or {}
     try:
         if payload.get("event") == "message.received":
-            account_id, sender, text = _zernio_extract(payload)
+            account_id, sender, text, conversation_id = _zernio_extract(payload)
+            if conversation_id and account_id and sender:
+                _zernio_convo[(account_id, sender)] = conversation_id
             cfg = get_client(account_id)
             # Auto-bind: if no client matches this account yet but there's exactly
             # one active Zernio client (e.g. a demo/sandbox), attach this account
@@ -1774,15 +1788,26 @@ def zernio_webhook():
                     cfg = get_client(account_id)
                     print(f"[zernio] auto-bound account {account_id} -> {doc['client_id']}")
             if cfg and sender:
-                if text.strip():
-                    _handle_text(cfg, account_id, sender, text)
-                else:
-                    _handle_non_text(cfg, account_id, sender)
+                # Process in the background so Zernio gets its 200 within 5s
+                # (the Claude call takes longer than Zernio's webhook timeout).
+                threading.Thread(
+                    target=_zernio_process,
+                    args=(cfg, account_id, sender, text), daemon=True).start()
             else:
-                print(f"[zernio] no client for account {account_id}")
+                print(f"[zernio] no client for account {account_id} (sender={sender})")
     except Exception as exc:
         print(f"[zernio] webhook error: {exc}")
     return "OK", 200
+
+
+def _zernio_process(cfg: ClientConfig, account_id: str, sender: str, text: str) -> None:
+    try:
+        if text.strip():
+            _handle_text(cfg, account_id, sender, text)
+        else:
+            _handle_non_text(cfg, account_id, sender)
+    except Exception as exc:
+        print(f"[zernio] process error: {exc}")
 
 
 @app.get("/connect/whatsapp/start")
@@ -1839,6 +1864,213 @@ def connect_whatsapp_callback():
 def redirect_to(url: str):
     from flask import redirect
     return redirect(url or "/")
+
+
+# ===========================================================================
+# 10. BILLING (Stripe subscriptions) + MESSAGING (inbox) + CONTACT
+# ===========================================================================
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_API = "https://api.stripe.com/v1"
+PLAN_PRICES = {
+    "pro": os.environ.get("STRIPE_PRICE_PRO", ""),
+    "business": os.environ.get("STRIPE_PRICE_BUSINESS", ""),
+}
+
+
+def _stripe_post(path: str, data: dict) -> dict:
+    r = requests.post(f"{STRIPE_API}/{path}", data=data,
+                      auth=(STRIPE_SECRET_KEY, ""), timeout=20)
+    out = r.json()
+    if r.status_code >= 300:
+        raise RuntimeError(out.get("error", {}).get("message", "Stripe error"))
+    return out
+
+
+@app.post("/billing/checkout")
+def billing_checkout():
+    """Create a Stripe Checkout session for the signed-in user's chosen plan."""
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    if not STRIPE_SECRET_KEY:
+        return {"error": "Billing not configured (set STRIPE_SECRET_KEY)."}, 400
+    data = request.get_json(silent=True) or {}
+    plan = str(data.get("plan", "")).lower().strip()
+    price = PLAN_PRICES.get(plan)
+    if not price:
+        return {"error": "Unknown plan or price not configured."}, 400
+    base = APP_BASE_URL or ""
+    try:
+        session = _stripe_post("checkout/sessions", {
+            "mode": "subscription",
+            "line_items[0][price]": price,
+            "line_items[0][quantity]": "1",
+            "customer_email": email,
+            "client_reference_id": email,
+            "metadata[email]": email,
+            "metadata[plan]": plan,
+            "subscription_data[metadata][email]": email,
+            "subscription_data[metadata][plan]": plan,
+            "success_url": f"{base}/app.html?billing=success",
+            "cancel_url": f"{base}/pricing.html?billing=cancel",
+        })
+    except Exception as e:
+        print(f"[billing] checkout error: {e}")
+        return {"error": str(e)}, 502
+    return {"url": session.get("url")}, 200
+
+
+@app.get("/billing/status")
+def billing_status():
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    user = get_user(email) or {}
+    return jsonify({"plan": user.get("plan", "free"),
+                    "status": user.get("sub_status", "none")})
+
+
+def _set_plan(email: str, plan: str, status: str) -> None:
+    if email:
+        _get_db().users.update_one({"email": _norm_email(email)},
+                                   {"$set": {"plan": plan, "sub_status": status}})
+
+
+@app.post("/billing/webhook")
+def billing_webhook():
+    raw = request.get_data()
+    if STRIPE_WEBHOOK_SECRET:
+        sig = request.headers.get("Stripe-Signature", "")
+        parts = dict(p.split("=", 1) for p in sig.split(",") if "=" in p)
+        signed = f"{parts.get('t','')}.{raw.decode('utf-8', 'ignore')}"
+        expected = hmac.new(STRIPE_WEBHOOK_SECRET.encode(), signed.encode(),
+                            hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(parts.get("v1", ""), expected):
+            return "Invalid signature", 400
+    event = request.get_json(silent=True) or {}
+    try:
+        etype = event.get("type", "")
+        obj = event.get("data", {}).get("object", {})
+        if etype == "checkout.session.completed":
+            email = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("email")
+            plan = (obj.get("metadata") or {}).get("plan", "pro")
+            _set_plan(email, plan, "active")
+            print(f"[billing] {email} subscribed -> {plan}")
+        elif etype in ("customer.subscription.deleted", "customer.subscription.paused"):
+            email = (obj.get("metadata") or {}).get("email")
+            _set_plan(email, "free", "canceled")
+    except Exception as exc:
+        print(f"[billing] webhook error: {exc}")
+    return "OK", 200
+
+
+# ---- messaging: inbox log + conversations + manual reply ------------------
+def log_message(client_id: str, customer: str, direction: str, text: str,
+                conversation_id: str = "") -> None:
+    if not client_id or not customer or not text:
+        return
+    try:
+        _get_db().messages.insert_one({
+            "client_id": client_id, "customer": _norm_phone(customer),
+            "direction": direction, "text": text[:2000],
+            "conversation_id": conversation_id, "ts": time.time(),
+            "created_at": _now()})
+    except Exception as exc:
+        print(f"[msg] log failed: {exc}")
+
+
+@app.get("/my/conversations")
+def my_conversations():
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    cid = (get_user(email) or {}).get("client_id", "")
+    if not cid:
+        return jsonify({"conversations": []})
+    try:
+        msgs = list(_get_db().messages.find({"client_id": cid}, {"_id": 0})
+                    .sort("ts", -1).limit(500))
+    except Exception:
+        msgs = []
+    convos, seen = [], set()
+    for m in msgs:
+        cust = m.get("customer", "")
+        if cust in seen:
+            continue
+        seen.add(cust)
+        convos.append({"customer": cust, "last": m.get("text", ""),
+                       "direction": m.get("direction"), "at": m.get("created_at", "")})
+    return jsonify({"conversations": convos})
+
+
+@app.get("/my/conversation")
+def my_conversation():
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    cid = (get_user(email) or {}).get("client_id", "")
+    cust = _norm_phone(request.args.get("customer", ""))
+    if not cid or not cust:
+        return jsonify({"messages": []})
+    try:
+        msgs = list(_get_db().messages.find(
+            {"client_id": cid, "customer": cust}, {"_id": 0}).sort("ts", 1).limit(200))
+    except Exception:
+        msgs = []
+    return jsonify({"messages": msgs})
+
+
+@app.post("/my/send")
+def my_send():
+    email = _current_email()
+    if not email:
+        return {"error": "Not signed in"}, 401
+    cid = (get_user(email) or {}).get("client_id", "")
+    cfg = None
+    for pnid in all_phone_number_ids():
+        c = get_client(pnid)
+        if c and c.client_id == cid:
+            cfg = c
+            break
+    if not cfg:
+        return {"error": "Your WhatsApp isn't connected yet."}, 400
+    data = request.get_json(silent=True) or {}
+    to = _norm_phone(str(data.get("to", "")))
+    text = sanitize_input(str(data.get("text", ""))).strip()
+    if not to or not text:
+        return {"error": "to and text required"}, 400
+    deliver(cfg, to, text)   # logs outbound automatically
+    return {"success": True}, 200
+
+
+@app.post("/contact")
+def contact():
+    data = request.get_json(silent=True) or {}
+    name = sanitize_input(str(data.get("name", ""))).strip()
+    email = _norm_email(data.get("email", ""))
+    message = sanitize_input(str(data.get("message", ""))).strip()
+    if not email or not message:
+        return {"success": False, "error": "Email and message are required."}, 400
+    try:
+        _get_db().contacts.insert_one({"name": name, "email": email,
+                                       "message": message, "created_at": _now()})
+    except Exception as exc:
+        print(f"[contact] save failed: {exc}")
+    # best-effort notify via Resend if configured
+    if os.environ.get("RESEND_API_KEY") and os.environ.get("CONTACT_TO"):
+        try:
+            requests.post("https://api.resend.com/emails",
+                          headers={"Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
+                                   "Content-Type": "application/json"},
+                          json={"from": os.environ.get("RESEND_FROM", "AIBusinessAutomation <onboarding@resend.dev>"),
+                                "to": [os.environ["CONTACT_TO"]],
+                                "subject": f"New contact from {name or email}",
+                                "html": f"<p><b>{name}</b> ({email})</p><p>{message}</p>"},
+                          timeout=10)
+        except Exception:
+            pass
+    return {"success": True}, 200
 
 
 @app.get("/health")
