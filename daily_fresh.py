@@ -1608,8 +1608,19 @@ def auth_request_otp():
         return {"success": False, "error": "Valid email required."}, 400
     code = create_otp(email)
     emailed = send_otp_email(email, code)
+    has_key = bool(os.environ.get("RESEND_API_KEY"))
+    # Provider configured but delivery failed -> tell the user instead of
+    # silently pretending we sent it. Most common cause: the Resend test
+    # sender (onboarding@resend.dev) only delivers to the account owner's
+    # own email; for real customers you must verify a domain in Resend.
+    if not emailed and has_key:
+        return {"success": False,
+                "error": ("We couldn't deliver the code by email. If you're using "
+                          "the Resend test sender, it only reaches your own Resend "
+                          "account email — verify a domain in Resend to email any "
+                          "customer. Please try again or contact support.")}, 502
     resp = {"success": True, "sent": emailed}
-    if not emailed and not os.environ.get("RESEND_API_KEY"):
+    if not emailed and not has_key:
         resp["dev_code"] = code  # dev mode only (no email provider configured)
         resp["dev"] = True
     return resp, 200

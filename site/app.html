@@ -108,6 +108,9 @@
       <button class="big-btn" id="verifyBtn" onclick="verifyOtp()">Verify & continue →</button>
       <div id="devNote" class="devnote hidden"></div>
       <div id="otpMsg" class="msg"></div>
+      <div style="text-align:center;margin-top:14px;font-size:14px;color:var(--muted);">
+        Didn't get it? <a id="resendLink" style="color:var(--green-d);font-weight:700;cursor:pointer;" onclick="resendOtp()">Resend code</a>
+      </div>
       <button class="big-btn ghost" onclick="show('screen-email')">← Use a different email</button>
     </div>
   </div>
@@ -198,9 +201,25 @@
         if(d.dev_code){ dn.textContent="Dev mode (email not configured yet): your code is "+d.dev_code; dn.classList.remove("hidden"); }
         else dn.classList.add("hidden");
         show("screen-otp");
+        const ci=document.getElementById("code"); ci.value=""; setTimeout(()=>ci.focus(),60);
       } else flash("emailMsg",d.error||"Could not send code.",false);
     }catch(e){ flash("emailMsg","Network error: "+e.message,false); }
     b.disabled=false; b.textContent="Send my code →";
+  }
+
+  async function resendOtp(){
+    const email=window._email; if(!email) return;
+    const lnk=document.getElementById("resendLink"); lnk.textContent="Sending…";
+    try{
+      const r=await fetch(API_BASE+"/auth/request-otp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+      const d=await r.json();
+      const dn=document.getElementById("devNote");
+      if(d.success){
+        if(d.dev_code){ dn.textContent="Dev mode: your code is "+d.dev_code; dn.classList.remove("hidden"); }
+        flash("otpMsg","New code sent.",true);
+      } else flash("otpMsg",d.error||"Could not resend.",false);
+    }catch(e){ flash("otpMsg","Network error: "+e.message,false); }
+    lnk.textContent="Resend code";
   }
 
   async function verifyOtp(){
