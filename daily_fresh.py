@@ -673,7 +673,8 @@ def save_order_legacy(client_id: str, phone: str, record: dict) -> str:
     doc = {
         "client_id": client_id, "order_id": order_id, "phone": _norm_phone(phone),
         "items": _items_to_text(record.get("items", "")),
-        "total": str(total), "address": record.get("delivery_address", ""),
+        "total": str(total), "total_value": _coerce_float(total),
+        "address": record.get("delivery_address", ""),
         "status": "New", "created_at": _now(),
     }
     _get_db().orders.insert_one(dict(doc))

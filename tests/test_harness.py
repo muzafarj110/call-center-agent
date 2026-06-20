@@ -106,9 +106,11 @@ confirm = OUT[-1][1] if OUT else ""
 check("AR customer (both) -> Arabic confirm", bool(AR.search(confirm)))
 check("AR customer (both) -> no English 'Order confirmed'", "Order confirmed" not in confirm, confirm[:60])
 
-# order saved
+# order saved (with numeric total for analytics)
 saved = df._get_db().orders.docs
 check("order saved to DB", len(saved) >= 1)
+check("order has numeric total_value", any(isinstance(o.get("total_value"), float) for o in saved),
+      str(saved[-1]) if saved else "none")
 
 # Escalation path
 reset_state()
