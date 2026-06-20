@@ -941,6 +941,7 @@ class Session:
     pending_confirmation: bool = False
     customer_name: str = ""
     saved_address: str = ""
+    detected_lang: str = ""   # "arabic"/"english" — last seen for this customer
     last_active: float = field(default_factory=time.time)
 
     def add(self, role: str, content: str) -> None:
@@ -951,23 +952,26 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
+_sessions_lock = threading.Lock()
 
 
 def get_session(phone_number_id: str, wa_id: str) -> Session:
-    _expire_sessions()
     key = f"{phone_number_id}:{wa_id}"
-    sess = _sessions.get(key)
-    if sess is None:
-        sess = Session()
-        _sessions[key] = sess
-    return sess
+    with _sessions_lock:
+        _expire_sessions_locked()
+        sess = _sessions.get(key)
+        if sess is None:
+            sess = Session()
+            _sessions[key] = sess
+        return sess
 
 
 def reset_session(phone_number_id: str, wa_id: str) -> None:
-    _sessions.pop(f"{phone_number_id}:{wa_id}", None)
+    with _sessions_lock:
+        _sessions.pop(f"{phone_number_id}:{wa_id}", None)
 
 
-def _expire_sessions() -> None:
+def _expire_sessions_locked() -> None:
     now = time.time()
     for k in [k for k, s in _sessions.items() if now - s.last_active > SESSION_TTL]:
         _sessions.pop(k, None)
@@ -989,7 +993,7 @@ _ESCALATE = {
     "angry", "terrible", "worst", "bad", "sue", "lawyer", "speak to someone",
     "real person", "مدير", "موظف", "انسان", "إنسان", "شكوى", "مشكلة", "أشكو",
     "اشتكي", "استرجاع", "استرداد", "ارجاع", "زعلان", "غاضب", "سيء", "سيئ",
-    "بكلم حد", "محامي", "غلط",
+    "بكلم حد", "محامي",
 }
 _ADDRESS_HINTS = {
     "villa", "apartment", "flat", "building", "street", "road", "near", "behind",
@@ -1005,6 +1009,23 @@ _ADDRESS_HINTS = {
 def _norm_text(text: str) -> str:
     text = re.sub(r"[ً-ٰٟ]", "", text or "")
     return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def detect_lang(text: str) -> str:
+    """Best-effort per-message language for Python-owned replies on 'both'
+    clients. Arabic script present -> arabic, else english."""
+    return "arabic" if re.search(r"[؀-ۿ]", text or "") else "english"
+
+
+def _msg_lang(cfg: "ClientConfig", sess: "Session" = None) -> str:
+    """Resolve which language Python-owned messages (confirmation, finalize,
+    escalation) should use. Fixed for arabic/english clients; for 'both' use the
+    customer's last detected language so we never send a bilingual blob."""
+    if cfg.language in ("arabic", "english"):
+        return cfg.language
+    if sess and sess.detected_lang:
+        return sess.detected_lang
+    return "english"
 
 
 def is_affirmative(text: str) -> bool:
@@ -1028,10 +1049,14 @@ def wants_human(text: str) -> bool:
 
 
 def looks_like_address(text: str) -> bool:
+    """Used only to auto-remember a delivery address. Require an explicit
+    address hint word — the old length+digit fallback misclassified ordinary
+    order lines ("2 kg tomatoes and 3 onions") as addresses and corrupted the
+    saved customer record."""
     n = _norm_text(text)
-    if any(h in n for h in _ADDRESS_HINTS) and len(n.split()) >= 2:
-        return True
-    return len(n) >= 12 and bool(re.search(r"\d", n))
+    if len(n.split()) < 2:
+        return False
+    return any(h in n for h in _ADDRESS_HINTS)
 
 
 def sanitize_input(text: str) -> str:
@@ -1047,7 +1072,18 @@ def sanitize_input(text: str) -> str:
 # 9. FLASK APP — webhook + dashboard routes
 # ===========================================================================
 app = Flask(__name__)
-CORS(app)
+# Restrict browser origins to our own site by default. Override with
+# CORS_ORIGINS="https://a.com,https://b.com" or CORS_ALLOW_ALL=1 (not advised).
+_cors_origins = os.environ.get("CORS_ORIGINS", "")
+if _cors_origins:
+    CORS(app, origins=[o.strip() for o in _cors_origins.split(",") if o.strip()])
+elif os.environ.get("CORS_ALLOW_ALL") == "1":
+    CORS(app)
+else:
+    CORS(app, origins=[
+        os.environ.get("APP_BASE_URL", "https://ai-automation-call-center.netlify.app"),
+        "http://localhost:8000", "http://localhost:3000",
+    ])
 
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN") or os.getenv("WHATSAPP_VERIFY_TOKEN", "aishop_verify")
 # Default WhatsApp number for admin-initiated sends (dashboard /escalate).
@@ -1172,8 +1208,25 @@ def verify():
 # --- webhook receive (POST) ------------------------------------------------
 @app.post("/webhook")
 def webhook():
-    """Meta WhatsApp Cloud API inbound webhook (transport=meta clients)."""
+    """Meta WhatsApp Cloud API inbound webhook (transport=meta clients).
+
+    Returns 200 immediately and processes in a background thread: the Claude
+    call takes seconds, and Meta retries (and can disable the subscription) if
+    the webhook is slow — which would cause duplicate replies."""
+    raw = request.get_data() or b""
+    secret = os.environ.get("META_APP_SECRET")
+    if secret:
+        sig = request.headers.get("X-Hub-Signature-256", "")
+        expected = "sha256=" + hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            print("[webhook] BAD SIGNATURE")
+            return "Forbidden", 403
     data = request.get_json(silent=True) or {}
+    threading.Thread(target=_process_meta_payload, args=(data,), daemon=True).start()
+    return "OK", 200
+
+
+def _process_meta_payload(data: dict) -> None:
     try:
         for entry in data.get("entry", []):
             for change in entry.get("changes", []):
@@ -1191,7 +1244,6 @@ def webhook():
                     _handle_text(cfg, phone_number_id, sender, text)
     except Exception as exc:
         print(f"[webhook] error: {exc}")
-    return "OK", 200
 
 
 def _handle_non_text(cfg: ClientConfig, channel_key: str, sender: str) -> None:
@@ -1240,6 +1292,8 @@ def _handle_text(cfg: ClientConfig, channel_key: str, wa_id: str, raw_text: str)
             sess.saved_address = existing.get("address", "")
 
     sess.add("user", body)
+    if cfg.language == "both":
+        sess.detected_lang = detect_lang(body)
     log_message(cfg.client_id, wa_id, "in", body)
 
     # 1) Escalation
@@ -1248,6 +1302,7 @@ def _handle_text(cfg: ClientConfig, channel_key: str, wa_id: str, raw_text: str)
         return
 
     # 2) Pending confirmation -> Python owns YES/NO
+    ambiguous_pending = False
     if sess.pending_confirmation:
         if is_affirmative(body):
             _finalize(cfg, wa_id, sess)
@@ -1255,12 +1310,10 @@ def _handle_text(cfg: ClientConfig, channel_key: str, wa_id: str, raw_text: str)
         if is_negative(body):
             sess.pending_confirmation = False  # let AI help them edit
         else:
-            ask = ("Shall I confirm this? Reply YES to confirm or NO to change."
-                   if cfg.language != "arabic"
-                   else "هل أؤكد الطلب؟ اكتب نعم للتأكيد أو لا للتعديل.")
-            sess.add("assistant", ask)
-            deliver(cfg, wa_id, ask)
-            return
+            # Neither yes nor no (e.g. the customer asks a question while we're
+            # waiting to confirm). Don't dead-loop on "reply YES/NO" — let Claude
+            # answer, but keep the cart pending so a later YES still confirms.
+            ambiguous_pending = True
 
     # 3) Normal turn — live data + Claude
     items_text = products_as_text(cfg.client_id)
@@ -1281,7 +1334,7 @@ def _handle_text(cfg: ClientConfig, channel_key: str, wa_id: str, raw_text: str)
             if cfg.language != "arabic"
             else "عذراً، هناك مشكلة تقنية بسيطة. حاول مرة أخرى بعد لحظات.", False)
 
-    sess.pending_confirmation = ready
+    sess.pending_confirmation = ready or ambiguous_pending
     sess.add("assistant", reply_text)
 
     if cfg.has_delivery and looks_like_address(body):
@@ -1332,12 +1385,7 @@ def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
         msg_en = f"✅ Order confirmed! Your Order ID is {record_id}. Thank you for ordering from {cfg.business_name}."
         msg_ar = f"✅ تم تأكيد طلبك! رقم الطلب: {record_id}. شكراً لطلبك من {cfg.business_name}."
 
-    if cfg.language == "arabic":
-        msg = msg_ar
-    elif cfg.language == "english":
-        msg = msg_en
-    else:
-        msg = f"{msg_en}\n\n{msg_ar}"
+    msg = msg_ar if _msg_lang(cfg, sess) == "arabic" else msg_en
 
     sess.add("assistant", msg)
     sess.pending_confirmation = False
@@ -1346,9 +1394,10 @@ def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
 
 
 def _escalate_customer(cfg: ClientConfig, wa_id: str, body: str) -> None:
-    customer_msg = ("A manager will follow up with you shortly. Thank you for your patience."
-                    if cfg.language != "arabic"
-                    else "سيتواصل معك المدير قريباً. شكراً لصبرك.")
+    lang = cfg.language if cfg.language in ("arabic", "english") else detect_lang(body)
+    customer_msg = ("سيتواصل معك المدير قريباً. شكراً لصبرك."
+                    if lang == "arabic"
+                    else "A manager will follow up with you shortly. Thank you for your patience.")
     deliver(cfg, wa_id, customer_msg)
     if cfg.escalation_number:
         notify = (f"⚠️ ESCALATION — {cfg.business_name}\n"
@@ -1413,6 +1462,7 @@ def verify_token():
 
 @app.route("/update-order", methods=["POST"])
 def update_order():
+    _check_admin()
     try:
         data = request.get_json() or {}
         order_id = data.get("order_id")
@@ -1420,6 +1470,9 @@ def update_order():
         client_id = data.get("client_id", "")
         if not order_id or not new_status:
             return {"error": "Missing data (order_id, status)"}, 400
+        if not client_id:
+            # Never update by order_id alone — that crosses tenants.
+            return {"error": "client_id required"}, 400
         if not update_order_status(order_id, new_status, client_id):
             return {"error": f"Order {order_id} not found"}, 404
         return {"success": True, "order_id": order_id, "status": new_status}, 200
@@ -1430,6 +1483,7 @@ def update_order():
 
 @app.route("/escalate", methods=["POST"])
 def escalate():
+    _check_admin()  # was an open relay — anyone could send WhatsApp via our token
     try:
         data = request.get_json() or {}
         to = data.get("to")
@@ -1521,13 +1575,13 @@ def products_api():
     GET  /products?client_id=...           -> list
     POST {client_id, name, price, unit, stock}    -> add/update by name
     DELETE {client_id, name}               -> remove one"""
+    _check_admin()  # read included — catalogs are per-tenant, not public
     if request.method == "GET":
         client_id = request.args.get("client_id", "")
         if not client_id:
             return {"error": "client_id required"}, 400
         return jsonify({"products": get_products(client_id, force=True)})
 
-    _check_admin()
     data = request.get_json(silent=True) or {}
     client_id = data.get("client_id", "")
     name = sanitize_input(str(data.get("name", ""))).strip()
@@ -1619,11 +1673,16 @@ def auth_request_otp():
                           "the Resend test sender, it only reaches your own Resend "
                           "account email — verify a domain in Resend to email any "
                           "customer. Please try again or contact support.")}, 502
-    resp = {"success": True, "sent": emailed}
     if not emailed and not has_key:
-        resp["dev_code"] = code  # dev mode only (no email provider configured)
-        resp["dev"] = True
-    return resp, 200
+        # No email provider. Returning the code over the API means anyone can log
+        # in as any email (account takeover), so this is OFF unless explicitly
+        # enabled for testing with ALLOW_DEV_OTP=1.
+        if os.environ.get("ALLOW_DEV_OTP") == "1":
+            return {"success": True, "sent": False, "dev": True, "dev_code": code}, 200
+        return {"success": False,
+                "error": ("Email sign-in isn't configured yet. Set RESEND_API_KEY "
+                          "to send real codes (or ALLOW_DEV_OTP=1 for testing).")}, 503
+    return {"success": True, "sent": emailed}, 200
 
 
 @app.post("/auth/verify-otp")
@@ -2113,4 +2172,7 @@ if __name__ == "__main__":
     print(f"  Clients loaded: {len(all_phone_number_ids())}")
     print("  Arabic + English support")
     print("=" * 45)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=True)
+    # Never enable the Werkzeug debugger in production (RCE risk). Opt in locally
+    # with FLASK_DEBUG=1.
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")),
+            debug=os.environ.get("FLASK_DEBUG") == "1")
