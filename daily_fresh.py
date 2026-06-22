@@ -2157,6 +2157,120 @@ def contact():
     return {"success": True}, 200
 
 
+# ===========================================================================
+# 11. ENQUIRY PAGE — auto-respond by the customer's chosen channel
+# ===========================================================================
+TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM = os.environ.get("TWILIO_VOICE_NUMBER", "")
+
+
+def _xml_escape(s: str) -> str:
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def place_call(to: str, message: str) -> bool:
+    """Place an automated outbound call that speaks `message` (Twilio <Say>).
+    Returns False if Twilio isn't configured so the caller can mark it pending.
+    Full conversational voice (caller can talk back) is the next step — see
+    references/voice.md in the whatsapp-voice-agent skill."""
+    if not (TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and to):
+        return False
+    twiml = f"<Response><Say voice='alice'>{_xml_escape(message)}</Say></Response>"
+    try:
+        r = requests.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Calls.json",
+            data={"To": to if to.startswith("+") else "+" + to,
+                  "From": TWILIO_FROM, "Twiml": twiml},
+            auth=(TWILIO_SID, TWILIO_TOKEN), timeout=20)
+        if r.status_code >= 300:
+            print(f"[call] twilio failed {r.status_code}: {r.text[:200]}")
+            return False
+        return True
+    except Exception as exc:
+        print(f"[call] error: {exc}")
+        return False
+
+
+def client_by_id(client_id: str) -> Optional[ClientConfig]:
+    if not client_id:
+        return None
+    doc = _get_db().clients.find_one({"client_id": client_id}, {"_id": 0})
+    try:
+        return ClientConfig.from_dict(doc) if doc else None
+    except Exception:
+        return None
+
+
+def _default_client_id() -> str:
+    """Resolve which business answers the enquiry page: ENQUIRY_CLIENT_ID if set,
+    else the only client when there is exactly one."""
+    env = os.environ.get("ENQUIRY_CLIENT_ID", "")
+    if env:
+        return env
+    try:
+        docs = list(_get_db().clients.find({}, {"_id": 0, "client_id": 1}))
+    except Exception:
+        docs = []
+    return docs[0].get("client_id", "") if len(docs) == 1 else ""
+
+
+def _enquiry_reply(cfg: Optional[ClientConfig], name: str, lang: str) -> str:
+    bn = cfg.business_name if cfg else "our team"
+    if lang == "arabic":
+        hi = f"مرحباً {name}، " if name else "مرحباً، "
+        return (f"{hi}شكراً لتواصلك مع {bn}. استلمنا استفسارك وسنساعدك على الفور.")
+    hi = f"Hi {name}, " if name else "Hi, "
+    return f"{hi}thanks for contacting {bn}. We received your enquiry and will help you right away."
+
+
+@app.post("/enquiry")
+def enquiry():
+    """Public enquiry submission. The visitor chooses how they want to be
+    reached (call or whatsapp) and we respond automatically on that channel."""
+    data = request.get_json(silent=True) or {}
+    name = sanitize_input(str(data.get("name", ""))).strip()
+    phone = _norm_phone(str(data.get("phone", "")))
+    message = sanitize_input(str(data.get("message", ""))).strip()
+    channel = str(data.get("channel", "whatsapp")).lower().strip()
+    if channel not in ("call", "whatsapp"):
+        channel = "whatsapp"
+    if not phone or not message:
+        return {"success": False, "error": "phone and message are required"}, 400
+
+    cid = str(data.get("client_id", "")).strip() or _default_client_id()
+    cfg = client_by_id(cid)
+    lang = detect_lang(message) if (not cfg or cfg.language == "both") else cfg.language
+    reply = _enquiry_reply(cfg, name, lang)
+
+    try:
+        _get_db().enquiries.insert_one({
+            "client_id": cid, "name": name, "phone": phone, "message": message,
+            "channel": channel, "status": "new", "created_at": _now()})
+    except Exception as exc:
+        print(f"[enquiry] save failed: {exc}")
+
+    responded, note = False, ""
+    if channel == "whatsapp":
+        if cfg:
+            try:
+                deliver(cfg, phone, reply)
+                responded = True
+            except Exception as exc:
+                note = f"WhatsApp send failed: {exc}"
+        else:
+            note = "No business is connected to respond from yet."
+    else:  # call
+        responded = place_call(phone, reply)
+        if not responded:
+            note = ("Calling isn't enabled yet (add TWILIO_ACCOUNT_SID, "
+                    "TWILIO_AUTH_TOKEN, TWILIO_VOICE_NUMBER). Saved as pending.")
+
+    return {"success": True, "channel": channel, "responded": responded,
+            "note": note}, 200
+
+
 @app.get("/health")
 def health():
     return jsonify({"status": "ok", "clients": len(all_phone_number_ids())})

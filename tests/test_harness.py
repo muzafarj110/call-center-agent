@@ -250,6 +250,49 @@ body = out[0] if isinstance(out, tuple) else out
 check("/contact saves submission", body.get("success") and df._get_db().contacts.count_documents({}) == 1)
 
 
+# ============ ENQUIRY PAGE (call / whatsapp auto-respond) ============
+import types as _types
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "t1", "business_type": "grocery",
+                                 "business_name": "Test Biz", "language": "both",
+                                 "transport": "meta", "phone_number_id": "123"})
+df._get_db().enquiries.docs.clear()
+
+# WhatsApp channel -> auto-reply via deliver()
+OUT.clear()
+request.set(method="POST", json={"name": "Sam", "phone": "971501234567",
+            "message": "Do you deliver?", "channel": "whatsapp", "client_id": "t1"}, headers={})
+out = df.enquiry()
+body = out[0] if isinstance(out, tuple) else out
+check("enquiry(whatsapp) responds via WhatsApp", body.get("responded") and OUT and OUT[-1][0] == "971501234567",
+      str(body)[:80])
+check("enquiry saved to DB", df._get_db().enquiries.count_documents({}) == 1)
+
+# Call channel, Twilio NOT configured -> pending
+for a in ("TWILIO_SID", "TWILIO_TOKEN", "TWILIO_FROM"):
+    setattr(df, a, "")
+request.set(method="POST", json={"name": "Lina", "phone": "971559876543",
+            "message": "اتصلوا بي", "channel": "call", "client_id": "t1"}, headers={})
+out = df.enquiry()
+body = out[0] if isinstance(out, tuple) else out
+check("enquiry(call) without Twilio -> pending, not responded",
+      body.get("success") and body.get("responded") is False and "TWILIO" in body.get("note", ""),
+      str(body)[:90])
+
+# Call channel, Twilio configured -> places the call (mock HTTP)
+df.TWILIO_SID, df.TWILIO_TOKEN, df.TWILIO_FROM = "AC1", "tok", "+15550001111"
+_real_requests = df.requests
+df.requests = _types.SimpleNamespace(
+    post=lambda *a, **k: _types.SimpleNamespace(status_code=201, text="ok"))
+request.set(method="POST", json={"name": "Lina", "phone": "971559876543",
+            "message": "call me", "channel": "call", "client_id": "t1"}, headers={})
+out = df.enquiry()
+body = out[0] if isinstance(out, tuple) else out
+check("enquiry(call) with Twilio -> call placed", body.get("responded") is True, str(body)[:80])
+df.requests = _real_requests
+df.TWILIO_SID = df.TWILIO_TOKEN = df.TWILIO_FROM = ""
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0

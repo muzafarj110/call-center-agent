@@ -74,8 +74,9 @@
 </head>
 <body>
   <div class="top">
-    <div class="brand">AIBusinessAutomation</div>
+    <a class="brand" href="index.html" style="color:#fff;text-decoration:none;">AIBusinessAutomation</a>
     <div class="topright">
+      <a href="index.html" style="color:#c7d6cd;font-size:13px;text-decoration:none;">← Home</a>
       <nav class="navlinks hidden" id="navlinks">
         <a onclick="goDashboard()">📊 Dashboard</a>
         <a onclick="goMessages()">💬 Messages</a>
@@ -133,7 +134,7 @@
     <h2 id="dashTitle" style="margin-bottom:10px;">Your dashboard</h2>
     <div id="waBanner" style="display:none;background:#eef6f1;border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
       <span id="waBannerText"></span>
-      <button class="big-btn" style="width:auto;margin:0;padding:10px 16px;" onclick="connectZernio()">🔗 Connect WhatsApp</button>
+      <button class="big-btn" style="width:auto;margin:0;padding:10px 16px;" onclick="openConnect()">🔗 Connect WhatsApp</button>
     </div>
     <div class="stats">
       <div class="stat"><div class="n" id="cPending">0</div><div class="l">Pending</div></div>
@@ -322,7 +323,7 @@
         <div><b>Delivery:</b> ${esc(W.delivery_charge||"0")}</div>
         <div><b>Manager:</b> ${esc(W.escalation_number||"—")}</div>
         <div><b>WhatsApp:</b> ${W.phone_number_id?'Connected':'Add later (pending)'}</div>
-        <div><b>Items:</b> ${esc((W.products||"").split("\\n").filter(x=>x.trim()).length)} listed</div>
+        <div><b>Items:</b> ${esc((W.products||"").split(/\r?\n/).filter(x=>x.trim()).length)} listed</div>
       </div>`, valid:()=>"", last:true },
   ];
 
@@ -364,12 +365,37 @@
   }
 
   // ---------- WHATSAPP CONNECT (Zernio) ----------
-  async function connectZernio(){
+  // Sandbox details (override per deployment if needed)
+  const ZERNIO_SANDBOX_NUMBER = "+1 202 908 7457";
+
+  function openConnect(){
+    let m=document.getElementById("connModal");
+    if(!m){
+      m=document.createElement("div"); m.id="connModal";
+      m.style.cssText="position:fixed;inset:0;background:rgba(8,30,20,.45);z-index:1000;display:block;";
+      m.innerHTML=`<div class="card" style="max-width:460px;margin:8vh auto;">
+        <h2 style="margin-bottom:6px;">Connect WhatsApp</h2>
+        <p class="lead">Choose how you want to connect your WhatsApp.</p>
+        <button class="big-btn" onclick="connectReal()">📱 Connect a real WhatsApp number</button>
+        <p class="hint" style="margin:6px 2px 0;">Links your own number via Zernio + Meta verification. For going live with customers.</p>
+        <button class="big-btn ghost" style="margin-top:14px;" onclick="document.getElementById('sandboxInfo').classList.toggle('hidden')">🧪 Use the Zernio sandbox (for testing)</button>
+        <div id="sandboxInfo" class="devnote hidden" style="margin-top:10px;">
+          No Meta sign-in needed. In WhatsApp, send your Zernio <b>join code</b> (from your Zernio dashboard) to <b>${ZERNIO_SANDBOX_NUMBER}</b>. Then message that number — your assistant will reply automatically.
+        </div>
+        <button class="big-btn ghost" style="margin-top:16px;" onclick="closeConnect()">Close</button>
+      </div>`;
+      document.body.appendChild(m);
+      m.addEventListener("click",e=>{ if(e.target===m) closeConnect(); });
+    }
+    m.style.display="block";
+  }
+  function closeConnect(){ const m=document.getElementById("connModal"); if(m) m.style.display="none"; }
+  async function connectReal(){
     try{
       const r=await fetch(API_BASE+"/connect/whatsapp/start",{headers:authH()});
       const d=await r.json();
       if(d.authUrl){ window.location.href=d.authUrl; }
-      else alert(d.error||"WhatsApp connection isn't available yet. Ask the AIBusinessAutomation admin to enable Zernio.");
+      else alert(d.error||"Real-number connect isn't available yet — the admin must set the Zernio keys.");
     }catch(e){ alert("Network error: "+e.message); }
   }
   async function refreshWaBanner(){
