@@ -335,6 +335,27 @@ check("sandbox binds to the PENDING business (B), not A",
       f"A={a.get('zernio_account_id')} B={b.get('zernio_account_id')}")
 
 
+# ============ sandbox REBINDS from an already-bound business ============
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "OLD", "business_type": "grocery", "business_name": "Old Biz",
+                                 "transport": "zernio", "status": "active", "zernio_account_id": "ACCTX"})
+df._get_db().clients.insert_one({"client_id": "NEW", "business_type": "clinic", "business_name": "New Biz",
+                                 "transport": "zernio", "status": "active",
+                                 "sandbox_pending_at": _time.time()})
+df.reload_clients()
+payload2 = {"event": "message.received", "account": {"id": "ACCTX"},
+            "message": {"sender": {"id": "971500000002"}, "text": "hi", "conversationId": "c2"}}
+raw2 = _json2.dumps(payload2).encode()
+request.set(method="POST", json=payload2, headers={}, data=raw2)
+df.zernio_webhook()
+_time.sleep(0.2)
+old = df._get_db().clients.find_one({"client_id": "OLD"})
+new = df._get_db().clients.find_one({"client_id": "NEW"})
+check("sandbox rebinds from OLD business to the pending NEW one",
+      new.get("zernio_account_id") == "ACCTX" and not old.get("zernio_account_id"),
+      f"OLD={old.get('zernio_account_id')} NEW={new.get('zernio_account_id')}")
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0

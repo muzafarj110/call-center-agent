@@ -1903,17 +1903,31 @@ def zernio_webhook():
             # Auto-bind: if no client matches this account yet but there's exactly
             # one active Zernio client (e.g. a demo/sandbox), attach this account
             # to it so future routing + sending work.
-            if not cfg and account_id:
-                doc = _pending_sandbox_client() or _sole_active_zernio_client()
-                if doc:
-                    _get_db().clients.update_one(
-                        {"client_id": doc["client_id"]},
+            # Sandbox (re)bind: if a business just opted into the sandbox, attach
+            # this account to IT — even if the account was already bound to an
+            # older test business (that's why a new business never connected).
+            # Otherwise, first-time auto-bind to the sole active Zernio client.
+            if account_id:
+                pending = _pending_sandbox_client()
+                target = None
+                if pending and (not cfg or getattr(cfg, "client_id", "") != pending.get("client_id")):
+                    target = pending
+                elif not cfg:
+                    target = _sole_active_zernio_client()
+                if target:
+                    db = _get_db()
+                    # detach this account from any other business first
+                    db.clients.update_many(
+                        {"zernio_account_id": account_id},
+                        {"$unset": {"zernio_account_id": ""}})
+                    db.clients.update_one(
+                        {"client_id": target["client_id"]},
                         {"$set": {"zernio_account_id": account_id,
                                   "transport": "zernio", "status": "active"},
                          "$unset": {"sandbox_pending_at": ""}})
                     reload_clients()
                     cfg = get_client(account_id)
-                    print(f"[zernio] auto-bound account {account_id} -> {doc['client_id']}")
+                    print(f"[zernio] bound account {account_id} -> {target['client_id']}")
             if cfg and sender:
                 # Process in the background so Zernio gets its 200 within 5s
                 # (the Claude call takes longer than Zernio's webhook timeout).

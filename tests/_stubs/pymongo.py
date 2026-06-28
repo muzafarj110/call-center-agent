@@ -80,10 +80,15 @@ class _Coll:
                 return dd
         return None
 
+    def _apply(self, d, update):
+        d.update(update.get("$set", {}))
+        for k in (update.get("$unset", {}) or {}):
+            d.pop(k, None)
+
     def update_one(self, q, update, upsert=False):
         for d in self.docs:
             if _match(d, q):
-                d.update(update.get("$set", {}))
+                self._apply(d, update)
                 return _Res(matched=1, modified=1)
         if upsert:
             doc = dict(q)
@@ -91,6 +96,14 @@ class _Coll:
             r = self.insert_one(doc)
             return _Res(upserted=r.inserted_id)
         return _Res()
+
+    def update_many(self, q, update):
+        n = 0
+        for d in self.docs:
+            if _match(d, q):
+                self._apply(d, update)
+                n += 1
+        return _Res(matched=n, modified=n)
 
     def delete_one(self, q):
         for i, d in enumerate(self.docs):
