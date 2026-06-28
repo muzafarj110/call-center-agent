@@ -293,6 +293,21 @@ df.requests = _real_requests
 df.TWILIO_SID = df.TWILIO_TOKEN = df.TWILIO_FROM = ""
 
 
+# ============ /my/use-sandbox (flip business to Zernio) ============
+df._get_db().clients.docs.clear()
+df.ensure_user("sb@test.com")
+_act, scid = df.upsert_client_db({"business_name": "SB Biz", "business_type": "grocery", "language": "both"})
+df.set_user_client("sb@test.com", scid)
+sbtok = df.create_session("sb@test.com")
+request.set(method="POST", args={}, headers={"Authorization": "Bearer " + sbtok})
+out = df.my_use_sandbox()
+body = out[0] if isinstance(out, tuple) else out
+cdoc = df._get_db().clients.find_one({"client_id": scid})
+check("/my/use-sandbox flips business to zernio + auto_bind",
+      body.get("success") and cdoc.get("transport") == "zernio" and body.get("auto_bind") is True,
+      str(body)[:90])
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0

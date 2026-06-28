@@ -1756,6 +1756,32 @@ def setup():
             "status": record["status"], "products_added": seeded}, 200
 
 
+@app.post("/my/use-sandbox")
+def my_use_sandbox():
+    """Flip the signed-in user's business to the Zernio transport so the Zernio
+    sandbox number auto-binds on the first inbound message (see
+    _sole_active_zernio_client). No Meta OAuth needed for testing."""
+    email = _current_email()
+    if not email:
+        return {"success": False, "error": "Not signed in"}, 401
+    cid = (get_user(email) or {}).get("client_id", "")
+    if not cid:
+        return {"success": False, "error": "Complete your business setup first."}, 400
+    _get_db().clients.update_one(
+        {"client_id": cid}, {"$set": {"transport": "zernio", "status": "active"}})
+    reload_clients()
+    zernio_clients = _get_db().clients.count_documents({"transport": "zernio"})
+    auto_bind = zernio_clients == 1
+    return {"success": True,
+            "sandbox_number": os.environ.get("ZERNIO_SANDBOX_NUMBER", "+1 202 908 7457"),
+            "auto_bind": auto_bind,
+            "note": ("Send your Zernio join code to the sandbox number, then message "
+                     "it — your assistant will reply and bind automatically.")
+            if auto_bind else
+            ("More than one business is set to Zernio, so the sandbox can't pick one "
+             "automatically. Ask the admin to bind your account id.")}, 200
+
+
 @app.get("/my/client")
 def my_client():
     """Return the signed-in user's business config (+ products as text) so the

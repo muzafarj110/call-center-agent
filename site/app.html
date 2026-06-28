@@ -378,10 +378,8 @@
         <p class="lead">Choose how you want to connect your WhatsApp.</p>
         <button class="big-btn" onclick="connectReal()">📱 Connect a real WhatsApp number</button>
         <p class="hint" style="margin:6px 2px 0;">Links your own number via Zernio + Meta verification. For going live with customers.</p>
-        <button class="big-btn ghost" style="margin-top:14px;" onclick="document.getElementById('sandboxInfo').classList.toggle('hidden')">🧪 Use the Zernio sandbox (for testing)</button>
-        <div id="sandboxInfo" class="devnote hidden" style="margin-top:10px;">
-          No Meta sign-in needed. In WhatsApp, send your Zernio <b>join code</b> (from your Zernio dashboard) to <b>${ZERNIO_SANDBOX_NUMBER}</b>. Then message that number — your assistant will reply automatically.
-        </div>
+        <button class="big-btn ghost" style="margin-top:14px;" onclick="useSandbox()">🧪 Use the Zernio sandbox (for testing)</button>
+        <div id="sandboxInfo" class="devnote hidden" style="margin-top:10px;"></div>
         <button class="big-btn ghost" style="margin-top:16px;" onclick="closeConnect()">Close</button>
       </div>`;
       document.body.appendChild(m);
@@ -397,6 +395,19 @@
       if(d.authUrl){ window.location.href=d.authUrl; }
       else alert(d.error||"Real-number connect isn't available yet — the admin must set the Zernio keys.");
     }catch(e){ alert("Network error: "+e.message); }
+  }
+  async function useSandbox(){
+    const info=document.getElementById("sandboxInfo"); info.classList.remove("hidden");
+    info.textContent="Enabling sandbox…";
+    try{
+      const r=await fetch(API_BASE+"/my/use-sandbox",{method:"POST",headers:authH()});
+      const d=await r.json();
+      if(d.success){
+        const num=d.sandbox_number||ZERNIO_SANDBOX_NUMBER;
+        info.innerHTML="✅ Sandbox enabled. In WhatsApp, send your Zernio <b>join code</b> (from your Zernio dashboard) to <b>"+num+"</b>, then message that number — your assistant will reply and connect automatically."+(d.auto_bind?"":"<br><br>⚠️ "+(d.note||""));
+        refreshWaBanner();
+      } else info.textContent="⚠️ "+(d.error||"Could not enable sandbox.");
+    }catch(e){ info.textContent="⚠️ Network error: "+e.message; }
   }
   async function refreshWaBanner(){
     try{
