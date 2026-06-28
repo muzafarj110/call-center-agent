@@ -509,6 +509,23 @@ def _sole_active_zernio_client() -> Optional[dict]:
     return docs[0] if len(docs) == 1 else None
 
 
+def _pending_sandbox_client() -> Optional[dict]:
+    """The Zernio client that most recently opted into sandbox connect (within
+    30 min) via /my/use-sandbox. Lets the sandbox bind to the right business
+    even when several clients use the Zernio transport."""
+    try:
+        now = time.time()
+        docs = [d for d in _get_db().clients.find({"transport": "zernio"})
+                if d.get("sandbox_pending_at")
+                and (now - float(d.get("sandbox_pending_at", 0))) < 1800]
+    except Exception:
+        return None
+    if not docs:
+        return None
+    docs.sort(key=lambda d: float(d.get("sandbox_pending_at", 0)), reverse=True)
+    return docs[0]
+
+
 def get_client(phone_number_id: str) -> Optional[ClientConfig]:
     return _load_registry().get(str(phone_number_id))
 
@@ -1767,19 +1784,18 @@ def my_use_sandbox():
     cid = (get_user(email) or {}).get("client_id", "")
     if not cid:
         return {"success": False, "error": "Complete your business setup first."}, 400
+    # Mark THIS business as the pending sandbox target so the webhook binds the
+    # next inbound sandbox message to it — works even with several Zernio clients.
     _get_db().clients.update_one(
-        {"client_id": cid}, {"$set": {"transport": "zernio", "status": "active"}})
+        {"client_id": cid}, {"$set": {"transport": "zernio", "status": "active",
+                                      "sandbox_pending_at": time.time()}})
     reload_clients()
-    zernio_clients = _get_db().clients.count_documents({"transport": "zernio"})
-    auto_bind = zernio_clients == 1
     return {"success": True,
             "sandbox_number": os.environ.get("ZERNIO_SANDBOX_NUMBER", "+1 202 908 7457"),
-            "auto_bind": auto_bind,
+            "auto_bind": True,
             "note": ("Send your Zernio join code to the sandbox number, then message "
-                     "it — your assistant will reply and bind automatically.")
-            if auto_bind else
-            ("More than one business is set to Zernio, so the sandbox can't pick one "
-             "automatically. Ask the admin to bind your account id.")}, 200
+                     "it — your assistant will reply and bind to this business "
+                     "automatically (valid for 30 minutes).")}, 200
 
 
 @app.get("/my/client")
@@ -1888,12 +1904,13 @@ def zernio_webhook():
             # one active Zernio client (e.g. a demo/sandbox), attach this account
             # to it so future routing + sending work.
             if not cfg and account_id:
-                doc = _sole_active_zernio_client()
+                doc = _pending_sandbox_client() or _sole_active_zernio_client()
                 if doc:
                     _get_db().clients.update_one(
                         {"client_id": doc["client_id"]},
                         {"$set": {"zernio_account_id": account_id,
-                                  "transport": "zernio", "status": "active"}})
+                                  "transport": "zernio", "status": "active"},
+                         "$unset": {"sandbox_pending_at": ""}})
                     reload_clients()
                     cfg = get_client(account_id)
                     print(f"[zernio] auto-bound account {account_id} -> {doc['client_id']}")

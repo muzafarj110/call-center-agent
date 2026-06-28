@@ -308,6 +308,33 @@ check("/my/use-sandbox flips business to zernio + auto_bind",
       str(body)[:90])
 
 
+# ============ sandbox binds to the PENDING business (multi-Zernio) ============
+import time as _time, json as _json2
+df.ZERNIO_WEBHOOK_SECRET = ""
+df.ai_reply = lambda c, h, s: ("hi!", False)
+df.extract_record = lambda c, h: {}
+df._get_db().clients.docs.clear()
+# two Zernio businesses; only B opted into sandbox just now
+df._get_db().clients.insert_one({"client_id": "A", "business_type": "grocery", "business_name": "A Biz",
+                                 "transport": "zernio", "status": "active"})
+df._get_db().clients.insert_one({"client_id": "B", "business_type": "clinic", "business_name": "B Biz",
+                                 "transport": "zernio", "status": "active",
+                                 "sandbox_pending_at": _time.time()})
+df.reload_clients()
+payload = {"event": "message.received",
+           "account": {"id": "ACCT_NEW"},
+           "message": {"sender": {"id": "971500000001"}, "text": "hello", "conversationId": "c1"}}
+raw = _json2.dumps(payload).encode()
+request.set(method="POST", json=payload, headers={}, data=raw)
+df.zernio_webhook()
+_time.sleep(0.2)
+a = df._get_db().clients.find_one({"client_id": "A"})
+b = df._get_db().clients.find_one({"client_id": "B"})
+check("sandbox binds to the PENDING business (B), not A",
+      b.get("zernio_account_id") == "ACCT_NEW" and not a.get("zernio_account_id"),
+      f"A={a.get('zernio_account_id')} B={b.get('zernio_account_id')}")
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0
