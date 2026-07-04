@@ -217,13 +217,15 @@ _LANGUAGE_RULES = {
         "switches first. Do not mix both languages in one reply."
     ),
     "multi": (
-        "LANGUAGE: You are multilingual. Detect the language of EACH customer "
-        "message and reply in that SAME language — English, Italian, German, "
-        "French, Russian, Albanian, Montenegrin/Serbian, Spanish, or any other. "
-        "Match the customer's language exactly and naturally, like a local "
-        "would. Keep prices and numbers in Western digits. Never switch "
-        "languages unless the customer does, and never mix two languages in one "
-        "reply."
+        "LANGUAGE: You are multilingual. DEFAULT to English. On your FIRST reply "
+        "(or when the customer only sends a greeting like 'hi'/'ciao'/'hallo' or "
+        "their language is unclear), answer in English and add one short line "
+        "offering other languages, e.g. 'I can also help in Italiano, Deutsch, "
+        "Français, Русский or Shqip — just write in your language.' As soon as "
+        "the customer writes in a specific language, switch and reply ONLY in "
+        "that SAME language (Italian, German, French, Russian, Albanian, "
+        "Montenegrin/Serbian, Spanish, etc.), naturally like a local. Keep prices "
+        "and numbers in Western digits. Never mix two languages in one reply."
     ),
 }
 
@@ -643,6 +645,43 @@ def _pending_sandbox_client() -> Optional[dict]:
         return None
     docs.sort(key=lambda d: float(d.get("sandbox_pending_at", 0)), reverse=True)
     return docs[0]
+
+
+def _current_zernio_account() -> str:
+    """The account id of the currently-connected Zernio (sandbox) number, read
+    from whichever business holds it — so we can reassign it instantly for demos."""
+    try:
+        for d in _get_db().clients.find({"transport": "zernio"}):
+            acct = str(d.get("zernio_account_id", "")).strip()
+            if acct:
+                return acct
+    except Exception:
+        pass
+    return ""
+
+
+def bind_sandbox_to(client_id: str) -> bool:
+    """Point the sandbox number at THIS business right now if it's already
+    connected to some business; otherwise mark it pending to bind on the next
+    inbound message. Returns True if bound immediately."""
+    db = _get_db()
+    acct = _current_zernio_account()
+    if acct:
+        db.clients.update_many({"zernio_account_id": acct},
+                               {"$unset": {"zernio_account_id": ""}})
+        db.clients.update_one(
+            {"client_id": client_id},
+            {"$set": {"transport": "zernio", "status": "active",
+                      "zernio_account_id": acct},
+             "$unset": {"sandbox_pending_at": ""}})
+        reload_clients()
+        return True
+    db.clients.update_one(
+        {"client_id": client_id},
+        {"$set": {"transport": "zernio", "status": "active",
+                  "sandbox_pending_at": time.time()}})
+    reload_clients()
+    return False
 
 
 def get_client(phone_number_id: str) -> Optional[ClientConfig]:
@@ -1789,6 +1828,25 @@ def reload_clients_route():
     return jsonify({"reloaded": reload_clients()})
 
 
+@app.post("/admin/bind-sandbox")
+def admin_bind_sandbox():
+    """Admin: point the Zernio sandbox at a chosen business immediately, so a
+    demo message replies as THAT business. Body: {client_id}."""
+    _check_admin()
+    data = request.get_json(silent=True) or {}
+    cid = str(data.get("client_id", "")).strip()
+    if not cid:
+        return {"success": False, "error": "client_id required"}, 400
+    if not _get_db().clients.find_one({"client_id": cid}):
+        return {"success": False, "error": "client not found"}, 404
+    bound = bind_sandbox_to(cid)
+    return {"success": True, "bound_now": bound,
+            "note": ("Sandbox now answers as this business — message it to test."
+                     if bound else
+                     "Marked pending — no number is connected yet; message the "
+                     "sandbox to bind it.")}, 200
+
+
 # ---------------------------------------------------------------------------
 # Account auth (email OTP) + setup wizard + user dashboard
 # ---------------------------------------------------------------------------
@@ -1914,18 +1972,14 @@ def my_use_sandbox():
     cid = (get_user(email) or {}).get("client_id", "")
     if not cid:
         return {"success": False, "error": "Complete your business setup first."}, 400
-    # Mark THIS business as the pending sandbox target so the webhook binds the
-    # next inbound sandbox message to it — works even with several Zernio clients.
-    _get_db().clients.update_one(
-        {"client_id": cid}, {"$set": {"transport": "zernio", "status": "active",
-                                      "sandbox_pending_at": time.time()}})
-    reload_clients()
+    bound = bind_sandbox_to(cid)
     return {"success": True,
             "sandbox_number": os.environ.get("ZERNIO_SANDBOX_NUMBER", "+1 202 908 7457"),
-            "auto_bind": True,
-            "note": ("Send your Zernio join code to the sandbox number, then message "
-                     "it — your assistant will reply and bind to this business "
-                     "automatically (valid for 30 minutes).")}, 200
+            "bound_now": bound, "auto_bind": True,
+            "note": ("✅ The sandbox now answers as THIS business — just message it to test."
+                     if bound else
+                     "Send your join code to the sandbox number, then message it — "
+                     "it will connect to this business automatically.")}, 200
 
 
 @app.get("/my/client")

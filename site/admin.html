@@ -106,8 +106,23 @@
         <td>${esc(c.business_type)}</td>
         <td>${esc(c.language)}</td>
         <td class="muted">${esc(c.client_id||"")}</td>
-        <td><span class="link" onclick="loadOrders('${esc(c.client_id)}','${esc(c.business_name)}')">View orders</span></td>
+        <td class="row">
+          <span class="link" onclick="loadOrders('${esc(c.client_id)}','${esc(c.business_name)}')">View orders</span>
+          <button class="btn-primary" style="width:auto;padding:5px 10px;margin:0;font-size:12px;" onclick="useForDemo('${esc(c.client_id)}','${esc(c.business_name)}')">🧪 Use for demo</button>
+        </td>
       </tr>`).join("");
+  }
+
+  async function useForDemo(cid, name){
+    try{
+      const res = await fetch(API_BASE + "/admin/bind-sandbox", {
+        method:"POST", headers:{...hdr(), "Content-Type":"application/json"},
+        body: JSON.stringify({client_id: cid})
+      });
+      const d = await res.json();
+      if(d.success) alert("🧪 Sandbox now demos: " + name + "\n" + (d.note||""));
+      else alert("Bind sandbox failed (HTTP " + res.status + ")" + (d.error ? " — " + d.error : ""));
+    }catch(e){ alert("Couldn't reach /admin/bind-sandbox — " + e.message); }
   }
 
   async function loadOrders(clientId, name){

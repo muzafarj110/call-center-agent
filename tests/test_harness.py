@@ -400,6 +400,41 @@ saved_b = df._get_db().orders.find_one({"order_id": {"$exists": True}})
 check("booking saved with service field", any(o.get("service") == "VIP Cabana" for o in df._get_db().orders.docs))
 
 
+# ============ instant sandbox rebind + admin bind + English-first ============
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "OLD2", "business_type": "clinic", "business_name": "Old",
+                                 "transport": "zernio", "status": "active", "zernio_account_id": "ACCTZ"})
+df._get_db().clients.insert_one({"client_id": "NEW2", "business_type": "beach club", "business_name": "Beach",
+                                 "transport": "zernio", "status": "active"})
+df.reload_clients()
+bound = df.bind_sandbox_to("NEW2")
+o = df._get_db().clients.find_one({"client_id": "OLD2"})
+n = df._get_db().clients.find_one({"client_id": "NEW2"})
+check("bind_sandbox_to instantly moves sandbox to chosen business",
+      bound is True and n.get("zernio_account_id") == "ACCTZ" and not o.get("zernio_account_id"),
+      f"OLD={o.get('zernio_account_id')} NEW={n.get('zernio_account_id')}")
+
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "SOLO", "business_type": "salon", "business_name": "Solo",
+                                 "transport": "meta", "status": "active"})
+df.reload_clients()
+bound2 = df.bind_sandbox_to("SOLO")
+s = df._get_db().clients.find_one({"client_id": "SOLO"})
+check("bind_sandbox_to with no connection -> pending",
+      bound2 is False and s.get("transport") == "zernio" and s.get("sandbox_pending_at"), str(s)[:80])
+
+request.set(method="POST", json={"client_id": "SOLO"}, headers={})
+_o, _c = call(df.admin_bind_sandbox)
+check("/admin/bind-sandbox blocks without admin secret", _c == 403, f"code={_c}")
+request.set(method="POST", json={"client_id": "SOLO"}, headers={"X-Admin-Secret": "s3cret"})
+out = df.admin_bind_sandbox(); body = out[0] if isinstance(out, tuple) else out
+check("/admin/bind-sandbox binds with admin secret", body.get("success") is True, str(body)[:80])
+
+mcfg = mk_cfg(language="multi", flow_type="beach club")
+check("multi rule defaults to English + offers languages",
+      "DEFAULT to English" in df.build_system_prompt(mcfg))
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0
