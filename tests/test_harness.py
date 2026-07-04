@@ -435,6 +435,20 @@ check("multi rule defaults to English + offers languages",
       "DEFAULT to English" in df.build_system_prompt(mcfg))
 
 
+# ============ /clients lists ALL businesses (incl. unconnected) ============
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "conn-1", "business_type": "grocery",
+                                 "business_name": "Connected Biz", "phone_number_id": "PN123"})
+df._get_db().clients.insert_one({"client_id": "unconn-1", "business_type": "beach club",
+                                 "business_name": "Beach Club", "phone_number_id": ""})
+df.reload_clients()
+request.set(method="GET", args={}, headers={"X-Admin-Secret": "s3cret"})
+data = df.list_clients()
+names = [c.get("business_name") for c in (data.get("clients") or [])]
+check("/clients lists unconnected businesses too (Beach Club visible)",
+      "Beach Club" in names and "Connected Biz" in names, str(names))
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0

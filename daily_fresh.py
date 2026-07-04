@@ -1741,12 +1741,22 @@ def list_clients():
     if secret and request.headers.get("X-Admin-Secret") != secret:
         abort(403)
     out = []
-    for pnid in all_phone_number_ids():
-        c = get_client(pnid)
-        if c:
-            out.append({"phone_number_id": pnid, "client_id": c.client_id,
-                        "business_name": c.business_name,
-                        "business_type": c.canonical_type, "language": c.language})
+    try:
+        # List ALL businesses from the DB — including ones not yet connected to a
+        # number (they still need to appear so the admin can pick them for a demo).
+        for d in _get_db().clients.find({}, {"_id": 0}):
+            ct, _ = normalize_business_type(d.get("business_type", ""))
+            out.append({
+                "client_id": d.get("client_id", ""),
+                "business_name": d.get("business_name", ""),
+                "business_type": ct or d.get("business_type", ""),
+                "language": normalize_language(d.get("language", "both")),
+                "transport": d.get("transport", "meta"),
+                "connected": bool(d.get("zernio_account_id") or d.get("phone_number_id")),
+                "phone_number_id": d.get("phone_number_id", ""),
+            })
+    except Exception as exc:
+        print(f"[clients] list failed: {exc}")
     return jsonify({"count": len(out), "clients": out})
 
 
