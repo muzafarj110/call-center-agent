@@ -66,6 +66,7 @@ FLOW_ORDER = "order"            # baqala, supermarket, pharmacy
 FLOW_RESTAURANT = "restaurant"  # restaurant, cafeteria, cafe
 FLOW_APPOINTMENT = "appointment"  # hospital, clinic
 FLOW_LEAD = "lead"              # general retail / custom
+FLOW_BOOKING = "booking"        # hotels, beach clubs, boats, tours, car rental, salons
 
 _BUSINESS_TYPE_ALIASES = {
     "baqala": ("baqala", FLOW_ORDER),
@@ -100,6 +101,64 @@ _BUSINESS_TYPE_ALIASES = {
     "general": ("retail", FLOW_LEAD),
     "custom": ("custom", FLOW_LEAD),
     "other": ("custom", FLOW_LEAD),
+    # --- tourism / hospitality (reservation-style booking) ---
+    "hotel": ("hotel", FLOW_BOOKING),
+    "guesthouse": ("guesthouse", FLOW_BOOKING),
+    "guest house": ("guesthouse", FLOW_BOOKING),
+    "hostel": ("hostel", FLOW_BOOKING),
+    "bnb": ("guesthouse", FLOW_BOOKING),
+    "b&b": ("guesthouse", FLOW_BOOKING),
+    "apartment": ("apartment", FLOW_BOOKING),
+    "apartments": ("apartment", FLOW_BOOKING),
+    "villa": ("villa", FLOW_BOOKING),
+    "resort": ("resort", FLOW_BOOKING),
+    "rooms": ("guesthouse", FLOW_BOOKING),
+    "beach club": ("beach_club", FLOW_BOOKING),
+    "beach bar": ("beach_club", FLOW_BOOKING),
+    "sunbed": ("beach_club", FLOW_BOOKING),
+    "cabana": ("beach_club", FLOW_BOOKING),
+    "boat": ("boat_charter", FLOW_BOOKING),
+    "boat tour": ("boat_charter", FLOW_BOOKING),
+    "boat rental": ("boat_charter", FLOW_BOOKING),
+    "yacht": ("yacht_charter", FLOW_BOOKING),
+    "charter": ("boat_charter", FLOW_BOOKING),
+    "cruise": ("boat_charter", FLOW_BOOKING),
+    "ferry": ("boat_charter", FLOW_BOOKING),
+    "tour": ("tour", FLOW_BOOKING),
+    "tours": ("tour", FLOW_BOOKING),
+    "tour operator": ("tour", FLOW_BOOKING),
+    "excursion": ("tour", FLOW_BOOKING),
+    "rafting": ("tour", FLOW_BOOKING),
+    "hiking": ("tour", FLOW_BOOKING),
+    "trekking": ("tour", FLOW_BOOKING),
+    "adventure": ("tour", FLOW_BOOKING),
+    "paragliding": ("tour", FLOW_BOOKING),
+    "canyoning": ("tour", FLOW_BOOKING),
+    "diving": ("tour", FLOW_BOOKING),
+    "car rental": ("car_rental", FLOW_BOOKING),
+    "rent a car": ("car_rental", FLOW_BOOKING),
+    "rentacar": ("car_rental", FLOW_BOOKING),
+    "car hire": ("car_rental", FLOW_BOOKING),
+    "transfer": ("transfer", FLOW_BOOKING),
+    "airport transfer": ("transfer", FLOW_BOOKING),
+    "shuttle": ("transfer", FLOW_BOOKING),
+    "taxi": ("transfer", FLOW_BOOKING),
+    "salon": ("salon", FLOW_BOOKING),
+    "hair salon": ("salon", FLOW_BOOKING),
+    "barber": ("barber", FLOW_BOOKING),
+    "beauty": ("salon", FLOW_BOOKING),
+    "nails": ("salon", FLOW_BOOKING),
+    "spa": ("spa", FLOW_BOOKING),
+    "massage": ("spa", FLOW_BOOKING),
+    "wellness": ("spa", FLOW_BOOKING),
+    # --- inquiry / lead-style ---
+    "wedding": ("event_venue", FLOW_LEAD),
+    "event": ("event_venue", FLOW_LEAD),
+    "event venue": ("event_venue", FLOW_LEAD),
+    "venue": ("event_venue", FLOW_LEAD),
+    "real estate": ("real_estate", FLOW_LEAD),
+    "realty": ("real_estate", FLOW_LEAD),
+    "property": ("real_estate", FLOW_LEAD),
 }
 
 _FLOW_LABEL = {
@@ -107,6 +166,7 @@ _FLOW_LABEL = {
     FLOW_RESTAURANT: "food ordering",
     FLOW_APPOINTMENT: "appointment booking",
     FLOW_LEAD: "sales inquiry / lead capture",
+    FLOW_BOOKING: "reservation & booking",
 }
 
 
@@ -116,9 +176,11 @@ def normalize_business_type(raw: str) -> tuple[str, str]:
     key = raw.strip().lower()
     if key in _BUSINESS_TYPE_ALIASES:
         return _BUSINESS_TYPE_ALIASES[key]
-    for alias, mapped in _BUSINESS_TYPE_ALIASES.items():
-        if alias in key:
-            return mapped
+    # Word-boundary match, longest alias first, so short keys like "spa" don't
+    # match inside unrelated words ("spaceship") and "boat tour" wins over "boat".
+    for alias in sorted(_BUSINESS_TYPE_ALIASES, key=len, reverse=True):
+        if re.search(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", key):
+            return _BUSINESS_TYPE_ALIASES[alias]
     return (key, FLOW_LEAD)
 
 
@@ -126,6 +188,9 @@ _LANG_ALIASES = {
     "ar": "arabic", "arabic": "arabic", "عربي": "arabic", "العربية": "arabic",
     "en": "english", "english": "english",
     "both": "both", "bilingual": "both", "ar+en": "both", "ar/en": "both",
+    # Auto / multilingual — reply in whatever language the customer writes.
+    "multi": "multi", "multilingual": "multi", "auto": "multi", "all": "multi",
+    "any": "multi", "tourist": "multi",
 }
 
 
@@ -150,6 +215,15 @@ _LANGUAGE_RULES = {
         "they write in English, reply in English. If they mix both, reply in "
         "Arabic. Never switch languages mid-conversation unless the customer "
         "switches first. Do not mix both languages in one reply."
+    ),
+    "multi": (
+        "LANGUAGE: You are multilingual. Detect the language of EACH customer "
+        "message and reply in that SAME language — English, Italian, German, "
+        "French, Russian, Albanian, Montenegrin/Serbian, Spanish, or any other. "
+        "Match the customer's language exactly and naturally, like a local "
+        "would. Keep prices and numbers in Western digits. Never switch "
+        "languages unless the customer does, and never mix two languages in one "
+        "reply."
     ),
 }
 
@@ -306,11 +380,40 @@ item(s) or service of interest, quantity / budget if relevant, any notes.
 DO NOT promise prices or stock you are unsure of — capture the lead instead."""
 
 
+def _booking_flow(cfg: ClientConfig) -> str:
+    return f"""ROLE: You take reservations and bookings for {cfg.business_name} ({cfg.canonical_type}).
+
+FLOW:
+1. Greet warmly and ask how you can help — this business takes bookings from
+   travellers and locals (e.g. a room, a sunbed/cabana, a boat trip, a tour, a
+   car, or an appointment).
+2. Use the SERVICES list below to answer what's available and the price. If
+   something isn't listed, say so and offer the closest option.
+3. Collect, one question at a time, what you need to hold the booking:
+   - the service/item they want (e.g. double room, VIP cabana, sunset cruise,
+     SUV for 3 days, 10am haircut)
+   - the date (and check-out date / duration if it's a stay or rental)
+   - the time (or check-in time) if relevant
+   - number of people / guests
+   - the customer's name
+4. If a deposit or delivery/pickup applies, mention it clearly.
+5. Read back the full booking (service, date, time, people, name, price) and
+   ask the customer to confirm.
+   Do NOT finalize the booking yourself — wait for the system's YES/NO step.
+
+COLLECT before confirming: service/item, date (+ end date if a stay/rental),
+time, number of people, customer name.
+DO NOT invent prices or availability — use the SERVICES list, and if unsure, say
+you'll confirm availability. Be fast and warm: these are often tourists deciding
+between you and a competitor, so make booking effortless."""
+
+
 _FLOW_BUILDERS = {
     FLOW_ORDER: _order_flow,
     FLOW_RESTAURANT: _restaurant_flow,
     FLOW_APPOINTMENT: _appointment_flow,
     FLOW_LEAD: _lead_flow,
+    FLOW_BOOKING: _booking_flow,
 }
 
 
@@ -318,9 +421,14 @@ def generate_system_prompt(cfg: ClientConfig, available_slots: str = "") -> str:
     flow_block = _FLOW_BUILDERS.get(cfg.flow_family, _lead_flow)(cfg)
     language_block = _LANGUAGE_RULES.get(cfg.language, _LANGUAGE_RULES["both"])
 
-    items_label = "MENU" if cfg.flow_family == FLOW_RESTAURANT else (
-        "SERVICES / SPECIALTIES" if cfg.flow_family == FLOW_APPOINTMENT else "PRODUCTS"
-    )
+    if cfg.flow_family == FLOW_RESTAURANT:
+        items_label = "MENU"
+    elif cfg.flow_family == FLOW_APPOINTMENT:
+        items_label = "SERVICES / SPECIALTIES"
+    elif cfg.flow_family == FLOW_BOOKING:
+        items_label = "SERVICES / RATES"
+    else:
+        items_label = "PRODUCTS"
     items_block = cfg.products.strip() or "(No items loaded — ask the customer and escalate if unsure.)"
     hours_block = cfg.working_hours.strip() or "Not specified."
 
@@ -378,6 +486,8 @@ EXTRACTION_FIELDS = {
     FLOW_APPOINTMENT: ["patient_name", "patient_id", "specialty",
                        "appointment_date", "appointment_time", "phone"],
     FLOW_LEAD: ["customer_name", "phone", "interest", "quantity_or_budget", "notes"],
+    FLOW_BOOKING: ["customer_name", "service", "date", "end_date", "time",
+                   "people", "total", "notes", "phone"],
 }
 
 
@@ -486,11 +596,20 @@ def upsert_client_db(data: dict) -> tuple[str, str]:
     Matches by phone_number_id when present, else by business_name.
     Returns (action, client_id)."""
     db = _get_db()
+    cid_in = str(data.get("client_id", "")).strip()
     pnid = str(data.get("phone_number_id", "")).strip()
     name = str(data.get("business_name", "")).strip()
-    query = {"phone_number_id": pnid} if pnid else {"business_name": name}
+    # Prefer matching by client_id when we already know it — otherwise a changed
+    # phone_number_id/name misses the existing doc and the upsert tries to INSERT
+    # a duplicate client_id (E11000 on the unique index).
+    if cid_in:
+        query = {"client_id": cid_in}
+    elif pnid:
+        query = {"phone_number_id": pnid}
+    else:
+        query = {"business_name": name}
     existing = db.clients.find_one(query)
-    client_id = (existing or {}).get("client_id") or data.get("client_id") or _slug(name)
+    client_id = (existing or {}).get("client_id") or cid_in or _slug(name)
     data["client_id"] = client_id
     db.clients.update_one(query, {"$set": data}, upsert=True)
     return ("updated" if existing else "created", client_id)
@@ -1000,11 +1119,18 @@ _AFFIRM = {
     "sure", "correct", "right", "go ahead", "proceed", "done", "agree", "accept",
     "نعم", "ايوه", "أيوه", "ايوا", "اي", "أي", "تمام", "تمم", "موافق", "اوكي",
     "أوكي", "اوك", "اكد", "أكد", "اكيد", "أكيد", "ماشي", "زين", "صح", "تأكيد", "حسنا",
+    # multilingual (tourism): IT, ES, PT, FR, DE, RU, SQ, SR/ME
+    "si", "sì", "certo", "sim", "oui", "ja", "jawohl", "gerne", "da", "да",
+    "vale", "claro", "perfetto", "confermo", "confirmo", "confirmer", "bestätigen",
+    "po", "patjetër", "dakord", "u besh",
 }
 _NEGATE = {
     "no", "nope", "nah", "cancel", "stop", "wrong", "change", "edit", "wait",
     "not yet", "dont", "don't", "لا", "لأ", "كنسل", "الغ", "الغاء", "إلغاء",
     "غلط", "خطأ", "عدل", "تعديل", "مو", "مش", "بدل", "توقف",
+    # multilingual
+    "non", "nein", "нет", "não", "nao", "jo", "annulla", "annuler", "stornieren",
+    "cambiare", "cambia", "ändern", "modifier", "изменить",
 }
 _ESCALATE = {
     "manager", "human", "agent", "complaint", "complain", "problem", "refund",
@@ -1111,6 +1237,7 @@ GRAPH_URL = "https://graph.facebook.com/v19.0"
 _ID_PREFIX = {
     FLOW_ORDER: "ORD", FLOW_RESTAURANT: "ORD",
     FLOW_APPOINTMENT: "APT", FLOW_LEAD: "LEAD",
+    FLOW_BOOKING: "BKG",
 }
 
 # --- rate limiter (per WhatsApp sender) ------------------------------------
@@ -1396,6 +1523,9 @@ def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
     if cfg.flow_family == FLOW_APPOINTMENT:
         msg_en = f"✅ Appointment booked! Booking ID: {record_id}. You'll get a reminder before your appointment."
         msg_ar = f"✅ تم حجز موعدك! رقم الحجز: {record_id}. سنرسل لك تذكيراً قبل الموعد."
+    elif cfg.flow_family == FLOW_BOOKING:
+        msg_en = f"✅ Booking confirmed! Your booking ID is {record_id}. We look forward to welcoming you — thank you for choosing {cfg.business_name}!"
+        msg_ar = f"✅ تم تأكيد حجزك! رقم الحجز: {record_id}. نتطلع لاستقبالك — شكراً لاختيارك {cfg.business_name}!"
     elif cfg.flow_family == FLOW_LEAD:
         msg_en = f"✅ Got it! Your reference is {record_id}. Our team will contact you shortly."
         msg_ar = f"✅ تم! رقمك المرجعي: {record_id}. سيتواصل معك فريقنا قريباً."

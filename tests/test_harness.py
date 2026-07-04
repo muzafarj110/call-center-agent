@@ -356,6 +356,50 @@ check("sandbox rebinds from OLD business to the pending NEW one",
       f"OLD={old.get('zernio_account_id')} NEW={new.get('zernio_account_id')}")
 
 
+# ============ upsert_client_db no duplicate client_id (E11000 fix) ============
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "biz-1", "business_type": "grocery",
+                                 "business_name": "Biz", "phone_number_id": ""})
+# re-save the SAME business (known client_id) but now with a phone number set
+act, cid = df.upsert_client_db({"client_id": "biz-1", "business_type": "grocery",
+                                "business_name": "Biz", "phone_number_id": "PN9"})
+n = df._get_db().clients.count_documents({"client_id": "biz-1"})
+doc = df._get_db().clients.find_one({"client_id": "biz-1"})
+check("upsert updates existing client (no duplicate client_id)",
+      act == "updated" and n == 1 and doc.get("phone_number_id") == "PN9",
+      f"action={act} count={n}")
+
+
+# ============ tourism industries + multilingual ============
+for raw, exp in [("beach club", "booking"), ("guesthouse", "booking"), ("boat tour", "booking"),
+                 ("salon", "booking"), ("car rental", "booking"), ("yacht", "booking"),
+                 ("wedding", "lead"), ("real estate", "lead")]:
+    _c, _f = df.normalize_business_type(raw)
+    check(f"type '{raw}' -> {exp} flow", _f == exp, f"got {_f}")
+
+check("language 'multi' recognized", df.normalize_language("multi") == "multi")
+check("language 'auto' -> multi", df.normalize_language("auto") == "multi")
+
+# booking prompt + multilingual rule
+bcfg = mk_cfg(language="multi", flow_type="beach club")
+sp = df.build_system_prompt(bcfg, items_text="VIP Cabana - 80\nSunbed - 15")
+check("booking prompt mentions reservations/booking", "booking" in sp.lower() or "reservation" in sp.lower())
+check("multi rule lists tourist languages", "Italian" in sp and "German" in sp)
+check("booking extraction has service+date", "service" in df.get_extraction_fields(bcfg) and "date" in df.get_extraction_fields(bcfg))
+
+# booking end-to-end: Italian customer, multi -> English system confirm, BKG id
+reset_state()
+bcfg = mk_cfg(language="multi", flow_type="beach club")
+df.ai_reply = lambda c, h, s: ("Riepilogo: 1 cabana VIP domani. Totale 80 EUR. Confermi?", True)
+df.extract_record = lambda c, h: {"customer_name": "Marco", "service": "VIP Cabana", "date": "tomorrow", "people": "2", "total": "80"}
+df._handle_text(bcfg, "chan", "393331112222", "Vorrei prenotare una cabana per domani")
+df._handle_text(bcfg, "chan", "393331112222", "sì")
+conf = OUT[-1][1] if OUT else ""
+check("booking confirmed message + BKG id", "Booking confirmed" in conf and "BKG" in conf, conf[:70])
+saved_b = df._get_db().orders.find_one({"order_id": {"$exists": True}})
+check("booking saved with service field", any(o.get("service") == "VIP Cabana" for o in df._get_db().orders.docs))
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0

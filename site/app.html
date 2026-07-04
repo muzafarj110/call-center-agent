@@ -185,6 +185,9 @@
   function authH(extra){ return Object.assign({"Authorization":"Bearer "+token()}, extra||{}); }
   function show(id){ ["screen-email","screen-otp","screen-wizard","screen-dashboard","screen-messages"].forEach(s=>document.getElementById(s).classList.add("hidden")); document.getElementById(id).classList.remove("hidden"); }
   function flash(id,text,ok){ const m=document.getElementById(id); m.className="msg "+(ok?"ok":"err"); m.textContent=text; m.style.display="block"; }
+  // Build a meaningful, debuggable error: action, HTTP status, server error text.
+  function dbg(action,r,d){ return action+" failed (HTTP "+(r?r.status:"?")+")"+((d&&d.error)?" — "+d.error:""); }
+  function netErr(endpoint,e){ return "Couldn't reach "+endpoint+" — network error: "+(e&&e.message||e); }
   function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
 
   // ---------- AUTH ----------
@@ -203,8 +206,8 @@
         else dn.classList.add("hidden");
         show("screen-otp");
         const ci=document.getElementById("code"); ci.value=""; setTimeout(()=>ci.focus(),60);
-      } else flash("emailMsg",d.error||"Could not send code.",false);
-    }catch(e){ flash("emailMsg","Network error: "+e.message,false); }
+      } else flash("emailMsg",dbg("Send code (/auth/request-otp)",r,d),false);
+    }catch(e){ flash("emailMsg",netErr("/auth/request-otp",e),false); }
     b.disabled=false; b.textContent="Send my code →";
   }
 
@@ -218,8 +221,8 @@
       if(d.success){
         if(d.dev_code){ dn.textContent="Dev mode: your code is "+d.dev_code; dn.classList.remove("hidden"); }
         flash("otpMsg","New code sent.",true);
-      } else flash("otpMsg",d.error||"Could not resend.",false);
-    }catch(e){ flash("otpMsg","Network error: "+e.message,false); }
+      } else flash("otpMsg",dbg("Resend code (/auth/request-otp)",r,d),false);
+    }catch(e){ flash("otpMsg",netErr("/auth/request-otp",e),false); }
     lnk.textContent="Resend code";
   }
 
@@ -232,8 +235,8 @@
       if(d.success){
         localStorage.setItem(TKEY,d.token);
         await route();
-      } else flash("otpMsg",d.error||"Wrong code.",false);
-    }catch(e){ flash("otpMsg","Network error: "+e.message,false); }
+      } else flash("otpMsg",dbg("Verify code (/auth/verify-otp)",r,d),false);
+    }catch(e){ flash("otpMsg",netErr("/auth/verify-otp",e),false); }
     b.disabled=false; b.textContent="Verify & continue →";
   }
 
@@ -283,7 +286,7 @@
   const STEPS=[
     {t:"What kind of business?", html:()=>`
       <div class="types" id="typeGrid">
-        ${[["clinic","🩺","Clinic"],["hospital","🏥","Hospital"],["pharmacy","💊","Pharmacy"],["baqala","🛒","Grocery / Baqala"],["supermarket","🏬","Supermarket"],["restaurant","🍽️","Restaurant"],["cafeteria","☕","Cafeteria"],["retail","🛍️","Retail shop"]].map(
+        ${[["hotel","🏨","Hotel / Guesthouse"],["beach club","🏖️","Beach Club"],["boat","🛥️","Boat / Yacht"],["tour","🧭","Tours / Excursions"],["car rental","🚗","Car Rental"],["salon","💇","Salon / Barber"],["spa","💆","Spa / Wellness"],["restaurant","🍽️","Restaurant / Café"],["clinic","🩺","Clinic / Dental"],["baqala","🛒","Grocery / Shop"],["supermarket","🏬","Supermarket"],["pharmacy","💊","Pharmacy"],["retail","🛍️","Retail shop"],["custom","✨","Other"]].map(
           ([v,e,l])=>`<div class="type ${W.business_type===v?'sel':''}" data-v="${v}" onclick="pickType('${v}')"><span class="e">${e}</span>${l}</div>`).join("")}
       </div>`, valid:()=>W.business_type?"":"Please pick a business type."},
     {t:"What's your business called?", html:()=>`
@@ -299,9 +302,10 @@
       <input id="f_hours" value="${esc(W.working_hours)}" placeholder="9 AM – 9 PM, Sat–Thu" oninput="W.working_hours=this.value" />
       <label>Reply language</label>
       <select id="f_lang" onchange="W.language=this.value">
+        <option value="multi" ${W.language==='multi'?'selected':''}>Auto — all languages (best for tourists)</option>
         <option value="both" ${W.language==='both'?'selected':''}>Arabic + English</option>
-        <option value="arabic" ${W.language==='arabic'?'selected':''}>Arabic only</option>
         <option value="english" ${W.language==='english'?'selected':''}>English only</option>
+        <option value="arabic" ${W.language==='arabic'?'selected':''}>Arabic only</option>
       </select>`, valid:()=>"" },
     {t:"Delivery & manager", html:()=>`
       <label>Delivery charge <span class="hint">(0 if none / not applicable)</span></label>
@@ -359,8 +363,8 @@
       const r=await fetch(API_BASE+"/setup",{method:"POST",headers:authH({"Content-Type":"application/json"}),body:JSON.stringify(W)});
       const d=await r.json();
       if(d.success){ await route(); }
-      else flash("wizMsg",d.error||"Could not save.",false);
-    }catch(e){ flash("wizMsg","Network error: "+e.message,false); }
+      else flash("wizMsg",dbg("Save setup (/setup)",r,d),false);
+    }catch(e){ flash("wizMsg",netErr("/setup",e),false); }
     b.disabled=false; b.textContent="Finish ✓";
   }
 
@@ -393,8 +397,8 @@
       const r=await fetch(API_BASE+"/connect/whatsapp/start",{headers:authH()});
       const d=await r.json();
       if(d.authUrl){ window.location.href=d.authUrl; }
-      else alert(d.error||"Real-number connect isn't available yet — the admin must set the Zernio keys.");
-    }catch(e){ alert("Network error: "+e.message); }
+      else alert(dbg("Connect WhatsApp (/connect/whatsapp/start)",r,d)+" — the admin may need to set the Zernio keys.");
+    }catch(e){ alert(netErr("/connect/whatsapp/start",e)); }
   }
   async function useSandbox(){
     const info=document.getElementById("sandboxInfo"); info.classList.remove("hidden");
@@ -406,8 +410,8 @@
         const num=d.sandbox_number||ZERNIO_SANDBOX_NUMBER;
         info.innerHTML="✅ Sandbox enabled. In WhatsApp, send your Zernio <b>join code</b> (from your Zernio dashboard) to <b>"+num+"</b>, then message that number — your assistant will reply and connect automatically."+(d.auto_bind?"":"<br><br>⚠️ "+(d.note||""));
         refreshWaBanner();
-      } else info.textContent="⚠️ "+(d.error||"Could not enable sandbox.");
-    }catch(e){ info.textContent="⚠️ Network error: "+e.message; }
+      } else info.textContent="⚠️ "+dbg("Enable sandbox (/my/use-sandbox)",r,d);
+    }catch(e){ info.textContent="⚠️ "+netErr("/my/use-sandbox",e); }
   }
   async function refreshWaBanner(){
     try{
@@ -433,7 +437,7 @@
       document.getElementById("cCurrent").textContent=(DATA.current||[]).length;
       document.getElementById("cHistory").textContent=(DATA.history||[]).length;
       renderOrders();
-    }catch(e){ document.getElementById("orderList").innerHTML='<div class="empty">Could not load: '+esc(e.message)+'</div>'; }
+    }catch(e){ document.getElementById("orderList").innerHTML='<div class="empty">Could not load /my/orders — '+esc(e.message)+'</div>'; }
   }
   function switchTab(t){ TAB=t; document.querySelectorAll(".tab[data-t]").forEach(el=>el.classList.toggle("active",el.dataset.t===t)); renderOrders(); }
   function renderOrders(){
@@ -497,8 +501,8 @@
     try{
       const r=await fetch(API_BASE+"/my/send",{method:"POST",headers:authH({"Content-Type":"application/json"}),body:JSON.stringify({to:CUR_CUST,text})});
       const d=await r.json();
-      if(d.success){ openConvo(CUR_CUST); } else alert(d.error||"Could not send.");
-    }catch(e){ alert("Network error: "+e.message); }
+      if(d.success){ openConvo(CUR_CUST); } else alert(dbg("Send reply (/my/send)",r,d));
+    }catch(e){ alert(netErr("/my/send",e)); }
   }
 
   // ---------- BILLING ----------
