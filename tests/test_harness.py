@@ -448,6 +448,20 @@ names = [c.get("business_name") for c in (data.get("clients") or [])]
 check("/clients lists unconnected businesses too (Beach Club visible)",
       "Beach Club" in names and "Connected Biz" in names, str(names))
 
+# sandbox_active flag: only the business holding the zernio account is 'active'
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "act-1", "business_type": "beach club",
+                                 "business_name": "Active One", "transport": "zernio",
+                                 "zernio_account_id": "ACCTQ"})
+df._get_db().clients.insert_one({"client_id": "idle-1", "business_type": "salon",
+                                 "business_name": "Idle One", "transport": "zernio"})
+df.reload_clients()
+request.set(method="GET", args={}, headers={"X-Admin-Secret": "s3cret"})
+cl = {c["business_name"]: c for c in (df.list_clients().get("clients") or [])}
+check("only the bound business is sandbox_active",
+      cl["Active One"]["sandbox_active"] is True and cl["Idle One"]["sandbox_active"] is False,
+      str({k: v["sandbox_active"] for k, v in cl.items()}))
+
 
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")

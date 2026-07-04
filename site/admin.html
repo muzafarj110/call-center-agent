@@ -108,7 +108,12 @@
         <td class="muted">${esc(c.client_id||"")}</td>
         <td class="row">
           <span class="link" onclick="loadOrders('${esc(c.client_id)}','${esc(c.business_name)}')">View orders</span>
-          <button class="btn-primary" style="width:auto;padding:5px 10px;margin:0;font-size:12px;" onclick="useForDemo('${esc(c.client_id)}','${esc(c.business_name)}')">🧪 Use for demo</button>
+          ${c.sandbox_active ? '<span class="pill pill-done">● Live</span>' : ''}
+          <button style="width:auto;padding:5px 10px;margin:0;font-size:12px;${c.sandbox_active
+              ? 'background:var(--green);color:#fff;'
+              : 'background:#eef2f0;color:#33433b;border:1px solid #d7e0da;'}"
+            onclick="useForDemo('${esc(c.client_id)}','${esc(c.business_name)}')">
+            ${c.sandbox_active ? '✅ Demoing' : '🧪 Use for demo'}</button>
         </td>
       </tr>`).join("");
   }
@@ -120,9 +125,17 @@
         body: JSON.stringify({client_id: cid})
       });
       const d = await res.json();
-      if(d.success) alert("🧪 Sandbox now demos: " + name + "\n" + (d.note||""));
+      if(d.success){ alert("🧪 Sandbox now demos: " + name + "\n" + (d.note||"")); refreshClients(); }
       else alert("Bind sandbox failed (HTTP " + res.status + ")" + (d.error ? " — " + d.error : ""));
     }catch(e){ alert("Couldn't reach /admin/bind-sandbox — " + e.message); }
+  }
+
+  async function refreshClients(){
+    try{
+      const res = await fetch(API_BASE + "/clients", { headers: hdr() });
+      const data = await res.json();
+      renderClients(data.clients || []);
+    }catch(e){}
   }
 
   async function loadOrders(clientId, name){

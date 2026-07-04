@@ -1753,6 +1753,7 @@ def list_clients():
                 "language": normalize_language(d.get("language", "both")),
                 "transport": d.get("transport", "meta"),
                 "connected": bool(d.get("zernio_account_id") or d.get("phone_number_id")),
+                "sandbox_active": bool(d.get("zernio_account_id")),
                 "phone_number_id": d.get("phone_number_id", ""),
             })
     except Exception as exc:
