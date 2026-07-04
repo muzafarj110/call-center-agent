@@ -1749,6 +1749,7 @@ def list_clients():
             out.append({
                 "client_id": d.get("client_id", ""),
                 "business_name": d.get("business_name", ""),
+                "owner_email": d.get("owner_email", ""),
                 "business_type": ct or d.get("business_type", ""),
                 "language": normalize_language(d.get("language", "both")),
                 "transport": d.get("transport", "meta"),

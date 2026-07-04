@@ -452,7 +452,7 @@ check("/clients lists unconnected businesses too (Beach Club visible)",
 df._get_db().clients.docs.clear()
 df._get_db().clients.insert_one({"client_id": "act-1", "business_type": "beach club",
                                  "business_name": "Active One", "transport": "zernio",
-                                 "zernio_account_id": "ACCTQ"})
+                                 "owner_email": "owner1@test.com", "zernio_account_id": "ACCTQ"})
 df._get_db().clients.insert_one({"client_id": "idle-1", "business_type": "salon",
                                  "business_name": "Idle One", "transport": "zernio"})
 df.reload_clients()
@@ -461,6 +461,8 @@ cl = {c["business_name"]: c for c in (df.list_clients().get("clients") or [])}
 check("only the bound business is sandbox_active",
       cl["Active One"]["sandbox_active"] is True and cl["Idle One"]["sandbox_active"] is False,
       str({k: v["sandbox_active"] for k, v in cl.items()}))
+check("/clients includes owner login email",
+      cl["Active One"].get("owner_email") == "owner1@test.com", str(cl["Active One"].get("owner_email")))
 
 
 # ============ REPORT ============

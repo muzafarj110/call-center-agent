@@ -63,8 +63,8 @@
     <div class="card">
       <h3>Clients</h3>
       <table>
-        <thead><tr><th>Business</th><th>Type</th><th>Language</th><th>client_id</th><th></th></tr></thead>
-        <tbody id="clientsBody"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        <thead><tr><th>Business</th><th>Owner login</th><th>Type</th><th>Language</th><th>client_id</th><th></th></tr></thead>
+        <tbody id="clientsBody"><tr><td colspan="6" class="muted">Loading…</td></tr></tbody>
       </table>
     </div>
 
@@ -99,10 +99,11 @@
   function renderClients(clients){
     document.getElementById("cCount").textContent = clients.length;
     const b = document.getElementById("clientsBody");
-    if(!clients.length){ b.innerHTML = '<tr><td colspan="5" class="muted">No active clients yet.</td></tr>'; return; }
+    if(!clients.length){ b.innerHTML = '<tr><td colspan="6" class="muted">No active clients yet.</td></tr>'; return; }
     b.innerHTML = clients.map(c => `
       <tr>
         <td><b>${esc(c.business_name)}</b></td>
+        <td class="muted">${esc(c.owner_email||'—')}</td>
         <td>${esc(c.business_type)}</td>
         <td>${esc(c.language)}</td>
         <td class="muted">${esc(c.client_id||"")}</td>
