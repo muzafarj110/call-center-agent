@@ -529,12 +529,15 @@ def _read_clients_db() -> dict:
     raw = {}
     for c in _get_db().clients.find({}):
         status = str(c.get("status", "active")).strip().lower()
-        if status in ("disabled", "paused", "pending"):
+        if status in ("disabled", "paused"):
             continue
         transport = (c.get("transport") or "meta").strip().lower()
         pnid = str(c.get("phone_number_id", "")).strip()
         zacct = str(c.get("zernio_account_id", "")).strip()
         # Routing key = whatever the inbound webhook will carry for this client.
+        # NOTE: a business with a key IS connected and must route even if its
+        # status says "pending" — the wizard sets "pending" whenever there's no
+        # Meta phone_number_id, which wrongly hid Zernio-connected businesses.
         key = zacct if transport == "zernio" else pnid
         if not key:
             continue  # not connected yet -> not routable
@@ -1742,14 +1745,22 @@ def list_clients():
         abort(403)
     out = []
     try:
+        # Map business -> login email from the users table (robust even for
+        # clients created before owner_email was stored on the client doc).
+        email_by_cid = {}
+        for u in _get_db().users.find({}, {"_id": 0}):
+            cid = u.get("client_id", "")
+            if cid and u.get("email"):
+                email_by_cid[cid] = u["email"]
         # List ALL businesses from the DB — including ones not yet connected to a
         # number (they still need to appear so the admin can pick them for a demo).
         for d in _get_db().clients.find({}, {"_id": 0}):
             ct, _ = normalize_business_type(d.get("business_type", ""))
+            cid = d.get("client_id", "")
             out.append({
-                "client_id": d.get("client_id", ""),
+                "client_id": cid,
                 "business_name": d.get("business_name", ""),
-                "owner_email": d.get("owner_email", ""),
+                "owner_email": d.get("owner_email", "") or email_by_cid.get(cid, ""),
                 "business_type": ct or d.get("business_type", ""),
                 "language": normalize_language(d.get("language", "both")),
                 "transport": d.get("transport", "meta"),

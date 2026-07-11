@@ -455,14 +455,32 @@ df._get_db().clients.insert_one({"client_id": "act-1", "business_type": "beach c
                                  "owner_email": "owner1@test.com", "zernio_account_id": "ACCTQ"})
 df._get_db().clients.insert_one({"client_id": "idle-1", "business_type": "salon",
                                  "business_name": "Idle One", "transport": "zernio"})
+# Idle One has NO owner_email stored, but an account is linked to it in users:
+df._get_db().users.docs.clear()
+df.ensure_user("linked@test.com")
+df.set_user_client("linked@test.com", "idle-1")
 df.reload_clients()
 request.set(method="GET", args={}, headers={"X-Admin-Secret": "s3cret"})
 cl = {c["business_name"]: c for c in (df.list_clients().get("clients") or [])}
 check("only the bound business is sandbox_active",
       cl["Active One"]["sandbox_active"] is True and cl["Idle One"]["sandbox_active"] is False,
       str({k: v["sandbox_active"] for k, v in cl.items()}))
-check("/clients includes owner login email",
+check("owner login shows stored owner_email",
       cl["Active One"].get("owner_email") == "owner1@test.com", str(cl["Active One"].get("owner_email")))
+check("owner login derived from linked account when not stored",
+      cl["Idle One"].get("owner_email") == "linked@test.com", str(cl["Idle One"].get("owner_email")))
+
+
+# ============ pending + Zernio-connected business must still route ============
+df._get_db().clients.docs.clear()
+df._get_db().clients.insert_one({"client_id": "pend-1", "business_type": "hotel",
+                                 "business_name": "Tirane Rental", "language": "multi",
+                                 "transport": "zernio", "status": "pending",
+                                 "zernio_account_id": "ACCTP"})
+df.reload_clients()
+rcfg = df.get_client("ACCTP")
+check("pending Zernio-connected business still routes (no-response bug)",
+      rcfg is not None and rcfg.business_name == "Tirane Rental", str(rcfg))
 
 
 # ============ REPORT ============
