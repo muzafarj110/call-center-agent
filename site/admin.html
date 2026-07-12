@@ -115,6 +115,8 @@
               : 'background:#eef2f0;color:#33433b;border:1px solid #d7e0da;'}"
             onclick="useForDemo('${esc(c.client_id)}','${esc(c.business_name)}')">
             ${c.sandbox_active ? '✅ Demoing' : '🧪 Use for demo'}</button>
+          <button style="width:auto;padding:5px 10px;margin:0;font-size:12px;background:#fdecea;color:#b42318;border:1px solid #f4c7c1;"
+            onclick="deleteClient('${esc(c.client_id)}','${esc(c.business_name)}')">🗑 Delete</button>
         </td>
       </tr>`).join("");
   }
@@ -129,6 +131,19 @@
       if(d.success){ alert("🧪 Sandbox now demos: " + name + "\n" + (d.note||"")); refreshClients(); }
       else alert("Bind sandbox failed (HTTP " + res.status + ")" + (d.error ? " — " + d.error : ""));
     }catch(e){ alert("Couldn't reach /admin/bind-sandbox — " + e.message); }
+  }
+
+  async function deleteClient(cid, name){
+    if(!confirm("Delete \""+name+"\" and all its data? This cannot be undone.")) return;
+    try{
+      const res = await fetch(API_BASE + "/admin/delete-client", {
+        method:"POST", headers:{...hdr(), "Content-Type":"application/json"},
+        body: JSON.stringify({client_id: cid})
+      });
+      const d = await res.json();
+      if(d.success){ alert("🗑 Deleted: " + name); refreshClients(); }
+      else alert("Delete failed (HTTP " + res.status + ")" + (d.error ? " — " + d.error : ""));
+    }catch(e){ alert("Couldn't reach /admin/delete-client — " + e.message); }
   }
 
   async function refreshClients(){

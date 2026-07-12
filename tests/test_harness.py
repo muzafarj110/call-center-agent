@@ -483,6 +483,23 @@ check("pending Zernio-connected business still routes (no-response bug)",
       rcfg is not None and rcfg.business_name == "Tirane Rental", str(rcfg))
 
 
+# ============ admin delete-client ============
+df._get_db().clients.docs.clear()
+df._get_db().products.docs.clear()
+df._get_db().clients.insert_one({"client_id": "del-1", "business_type": "hotel", "business_name": "Junk Biz"})
+df._get_db().products.insert_one({"client_id": "del-1", "name": "Room", "price": "40"})
+df.reload_clients()
+request.set(method="POST", json={"client_id": "del-1"}, headers={})
+_o, _c = call(df.admin_delete_client)
+check("/admin/delete-client blocks without admin secret", _c == 403, f"code={_c}")
+request.set(method="POST", json={"client_id": "del-1"}, headers={"X-Admin-Secret": "s3cret"})
+out = df.admin_delete_client(); body = out[0] if isinstance(out, tuple) else out
+gone = df._get_db().clients.find_one({"client_id": "del-1"}) is None
+prods = df._get_db().products.count_documents({"client_id": "del-1"})
+check("/admin/delete-client removes business + its products",
+      body.get("success") and gone and prods == 0, f"gone={gone} prods={prods}")
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0

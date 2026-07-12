@@ -641,7 +641,7 @@ def _pending_sandbox_client() -> Optional[dict]:
         now = time.time()
         docs = [d for d in _get_db().clients.find({"transport": "zernio"})
                 if d.get("sandbox_pending_at")
-                and (now - float(d.get("sandbox_pending_at", 0))) < 1800]
+                and (now - float(d.get("sandbox_pending_at", 0))) < 86400]
     except Exception:
         return None
     if not docs:
@@ -1852,6 +1852,32 @@ def reload_clients_route():
     if secret and request.headers.get("X-Admin-Secret") != secret:
         abort(403)
     return jsonify({"reloaded": reload_clients()})
+
+
+@app.post("/admin/delete-client")
+def admin_delete_client():
+    """Admin: permanently delete a business and all its scoped data. Body:
+    {client_id}. Also unlinks any account that owned it so they can re-onboard."""
+    _check_admin()
+    data = request.get_json(silent=True) or {}
+    cid = str(data.get("client_id", "")).strip()
+    if not cid:
+        return {"success": False, "error": "client_id required"}, 400
+    db = _get_db()
+    if not db.clients.find_one({"client_id": cid}):
+        return {"success": False, "error": "client not found"}, 404
+    db.clients.delete_one({"client_id": cid})
+    for coll in ("products", "slots", "orders", "messages"):
+        try:
+            getattr(db, coll).delete_many({"client_id": cid})
+        except Exception:
+            pass
+    try:
+        db.users.update_many({"client_id": cid}, {"$unset": {"client_id": ""}})
+    except Exception:
+        pass
+    reload_clients()
+    return {"success": True}, 200
 
 
 @app.post("/admin/bind-sandbox")
