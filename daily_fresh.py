@@ -366,20 +366,30 @@ diagnoses. For medical questions, direct the patient to the doctor."""
 
 
 def _lead_flow(cfg: ClientConfig) -> str:
-    return f"""ROLE: You handle customer inquiries and capture leads for
-{cfg.business_name} ({cfg.canonical_type}).
+    return f"""ROLE: You are the sales assistant for {cfg.business_name}
+({cfg.canonical_type}). You answer questions, build interest, and QUALIFY every
+serious inquiry into a captured lead.
 
 FLOW:
-1. Greet the customer and answer their questions using the product/service
-   list below.
-2. If they want to buy or need a quote, capture the inquiry details.
-3. Collect the customer's contact details so the team can follow up.
-4. Summarize the inquiry + contact details and ask the customer to confirm.
-   Do NOT finalize yourself — wait for the system's YES/NO step.
+1. Greet and ask how you can help. Answer questions using the SERVICES list below.
+2. The moment the customer shows intent (e.g. "I want to set up…", "how much",
+   "I'm interested", "I need…"), start QUALIFYING — ask these ONE at a time,
+   conversationally (don't dump them all at once):
+   - their name
+   - their business and what it's for
+   - exactly what they need (which service + a short description of their goal)
+   - budget or timeline, if relevant
+   - the best email to reach them
+   - confirm the best phone / WhatsApp number
+3. Offer the free trial and to book a live demo to move them forward.
+4. Read back a short summary (name, what they want, email, phone) and ask them
+   to confirm. Do NOT finalize yourself — wait for the system's YES/NO step.
 
-COLLECT before confirming: customer name, phone (confirm WhatsApp number),
-item(s) or service of interest, quantity / budget if relevant, any notes.
-DO NOT promise prices or stock you are unsure of — capture the lead instead."""
+COLLECT before confirming: customer name, email, phone, and a clear description
+of what they want.
+Only escalate to a human if the customer EXPLICITLY asks to talk to a person or
+makes a complaint — never for normal sales questions. Be warm and consultative:
+you are here to sell and to capture the lead, not to hand it off."""
 
 
 def _booking_flow(cfg: ClientConfig) -> str:
@@ -487,7 +497,8 @@ EXTRACTION_FIELDS = {
                       "delivery_charge", "total", "delivery_address", "phone"],
     FLOW_APPOINTMENT: ["patient_name", "patient_id", "specialty",
                        "appointment_date", "appointment_time", "phone"],
-    FLOW_LEAD: ["customer_name", "phone", "interest", "quantity_or_budget", "notes"],
+    FLOW_LEAD: ["customer_name", "email", "phone", "interest",
+                "quantity_or_budget", "notes"],
     FLOW_BOOKING: ["customer_name", "service", "date", "end_date", "time",
                    "people", "total", "notes", "phone"],
 }
@@ -1178,11 +1189,15 @@ _NEGATE = {
     "cambiare", "cambia", "ändern", "modifier", "изменить",
 }
 _ESCALATE = {
-    "manager", "human", "agent", "complaint", "complain", "problem", "refund",
-    "angry", "terrible", "worst", "bad", "sue", "lawyer", "speak to someone",
-    "real person", "مدير", "موظف", "انسان", "إنسان", "شكوى", "مشكلة", "أشكو",
-    "اشتكي", "استرجاع", "استرداد", "ارجاع", "زعلان", "غاضب", "سيء", "سيئ",
-    "بكلم حد", "محامي",
+    # Single words are matched as WHOLE words; phrases are matched as substrings.
+    # Do NOT put product words here (e.g. "agent") — customers of an AI company
+    # say "ai agent" constantly and it must not trigger escalation.
+    "manager", "human", "complaint", "complain", "refund", "angry",
+    "terrible", "worst", "sue", "lawyer", "scam",
+    "speak to someone", "real person", "talk to a human", "speak to a human",
+    "talk to someone", "human agent", "real agent", "customer service",
+    "مدير", "انسان", "إنسان", "شكوى", "أشكو", "اشتكي",
+    "استرجاع", "استرداد", "ارجاع", "زعلان", "غاضب", "محامي", "بكلم حد",
 }
 _ADDRESS_HINTS = {
     "villa", "apartment", "flat", "building", "street", "road", "near", "behind",
@@ -1234,7 +1249,16 @@ def is_negative(text: str) -> bool:
 
 def wants_human(text: str) -> bool:
     n = _norm_text(text)
-    return any(k in n for k in _ESCALATE)
+    if not n:
+        return False
+    words = set(n.split())
+    for k in _ESCALATE:
+        if " " in k:          # multi-word phrase -> substring match
+            if k in n:
+                return True
+        elif k in words:      # single word -> whole-word match (not substring)
+            return True
+    return False
 
 
 def looks_like_address(text: str) -> bool:

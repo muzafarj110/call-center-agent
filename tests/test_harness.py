@@ -500,6 +500,16 @@ check("/admin/delete-client removes business + its products",
       body.get("success") and gone and prods == 0, f"gone={gone} prods={prods}")
 
 
+# ============ escalation false-positive fix + lead email ============
+check("'set up ai agent' does NOT escalate", not df.wants_human("I want to setup ai agent for my business"))
+check("'no problem' does NOT escalate", not df.wants_human("no problem, thanks"))
+check("'manager' still escalates", df.wants_human("can I speak to a manager"))
+check("'speak to a human' still escalates", df.wants_human("I want to speak to a human"))
+check("'refund' still escalates", df.wants_human("I need a refund now"))
+lead_fields = df.get_extraction_fields(mk_cfg(language="multi", flow_type="custom"))
+check("lead flow captures email", "email" in lead_fields and "customer_name" in lead_fields, str(lead_fields))
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0
