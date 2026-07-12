@@ -672,11 +672,14 @@ def bind_sandbox_to(client_id: str) -> bool:
     if acct:
         db.clients.update_many({"zernio_account_id": acct},
                                {"$unset": {"zernio_account_id": ""}})
+        # Also keep it PENDING: if that stored account is stale (e.g. the number
+        # was deleted and a new one added), the next real inbound message will
+        # rebind this business to the new number's account automatically.
         db.clients.update_one(
             {"client_id": client_id},
             {"$set": {"transport": "zernio", "status": "active",
-                      "zernio_account_id": acct},
-             "$unset": {"sandbox_pending_at": ""}})
+                      "zernio_account_id": acct,
+                      "sandbox_pending_at": time.time()}})
         reload_clients()
         return True
     db.clients.update_one(
