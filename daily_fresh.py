@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import html
 import json
 import os
 import random
@@ -1600,11 +1601,13 @@ def _notify_new_record(cfg: ClientConfig, wa_id: str, record_id: str, record: di
     key = os.environ.get("RESEND_API_KEY")
     to_email = _owner_email_for(cfg.client_id) or os.environ.get("LEADS_TO", "")
     if key and to_email:
-        items = "".join(f"<li>{s}</li>" for s in summary)
-        html = (f"<div style='font-family:sans-serif'>"
-                f"<h2>New {kind} — {cfg.business_name}</h2>"
-                f"<p>Reference: <b>{record_id}</b></p><ul>{items}</ul>"
-                f"<p style='color:#888'>WhatsApp: {wa_id}</p></div>")
+        # Escape everything customer-supplied — names/notes flow into the owner's
+        # inbox and must not inject HTML.
+        items = "".join(f"<li>{html.escape(s)}</li>" for s in summary)
+        body_html = (f"<div style='font-family:sans-serif'>"
+                     f"<h2>New {kind} — {html.escape(cfg.business_name)}</h2>"
+                     f"<p>Reference: <b>{html.escape(record_id)}</b></p><ul>{items}</ul>"
+                     f"<p style='color:#888'>WhatsApp: {html.escape(wa_id)}</p></div>")
         try:
             requests.post("https://api.resend.com/emails",
                           headers={"Authorization": f"Bearer {key}",
@@ -1613,7 +1616,7 @@ def _notify_new_record(cfg: ClientConfig, wa_id: str, record_id: str, record: di
                                     "RESEND_FROM", "AIBusinessAutomation <onboarding@resend.dev>"),
                                 "to": [to_email],
                                 "subject": f"New {kind} {record_id} — {cfg.business_name}",
-                                "html": html}, timeout=10)
+                                "html": body_html}, timeout=10)
         except Exception as exc:
             print(f"[notify] email failed: {exc}")
 

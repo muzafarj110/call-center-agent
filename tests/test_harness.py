@@ -536,6 +536,26 @@ check("new lead -> email alert to owner",
       str(emails)[:120])
 
 
+# ============ RED TEAM: email HTML injection ============
+reset_state()
+icfg = mk_cfg(language="english", flow_type="custom")
+df._get_db().users.docs.clear(); df.ensure_user("o2@ai.com"); df.set_user_client("o2@ai.com", "t1")
+df.ai_reply = lambda c, h, s: ("ok confirm?", True)
+df.extract_record = lambda c, h: {"customer_name": "<script>alert(1)</script>", "email": "x@x.com", "phone": "9715"}
+os.environ["RESEND_API_KEY"] = "re_test"
+captured = {}
+_rr = df.requests
+df.requests = _types.SimpleNamespace(
+    post=lambda url, **k: (captured.update({"html": (k.get("json") or {}).get("html", "")})
+                           or _types.SimpleNamespace(status_code=200, text="ok")))
+df._handle_text(icfg, "chan", "971557000000", "hi")
+df._handle_text(icfg, "chan", "971557000000", "yes")
+df.requests = _rr; os.environ.pop("RESEND_API_KEY", None)
+_h = captured.get("html", "")
+check("email alert escapes injected HTML (no raw <script>)",
+      "<script>" not in _h and "&lt;script&gt;" in _h, _h[:90])
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0
