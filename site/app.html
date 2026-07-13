@@ -445,14 +445,19 @@
     const el=document.getElementById("orderList");
     if(!list.length){ el.innerHTML='<div class="empty">Nothing here yet.</div>'; return; }
     el.innerHTML=list.map(o=>{
-      const det = o.items||o.specialty||o.interest||"";
-      const cust = o.phone||o.patient_name||o.customer_name||"";
-      const extra = [o.address, o.appointment_date, o.appointment_time].filter(Boolean).map(esc).join(" · ");
+      const name = o.customer_name||o.patient_name||"";
+      const det = o.interest||o.items||o.service||o.specialty||"";
+      const phone = o.phone||"";
+      const rows = [
+        name && `<b>${esc(name)}</b>`,
+        det && ('📝 '+esc(det)+(o.total?' — <b>'+esc(o.total)+'</b>':'')),
+        o.email && ('✉️ '+esc(o.email)),
+        phone && ('📱 '+esc(phone)),
+        [o.address,o.date,o.end_date,o.time,o.people,o.appointment_date,o.appointment_time,o.quantity_or_budget,o.notes].filter(Boolean).map(esc).join(' · ')
+      ].filter(Boolean).map(r=>'<div class="det">'+r+'</div>').join("");
       return `<div class="order">
         <div class="oid">${esc(o.order_id||"")} <span style="font-weight:400;color:var(--muted)">· ${esc(o.created_at||"")}</span></div>
-        <div class="meta">${esc(cust)}</div>
-        <div class="det">${esc(det)}${o.total?' — <b>'+esc(o.total)+'</b>':''}</div>
-        ${extra?'<div class="meta">'+extra+'</div>':''}
+        ${rows}
         <select onchange="setStatus('${esc(o.order_id)}',this.value)">
           <option value="">Status: ${esc(o.status||'New')} ▾</option>
           <option>New</option><option>Preparing</option><option>Out for delivery</option>

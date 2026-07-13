@@ -93,7 +93,7 @@ df.ai_reply = lambda c, h, s: ("Here is your summary: 2kg tomatoes. Total 20 AED
 df.extract_record = lambda c, h: {"items": "2kg tomatoes", "total": "20"}
 df._handle_text(cfg, "chan", "971559999999", "I want 2 kg tomatoes")
 df._handle_text(cfg, "chan", "971559999999", "yes")
-confirm = OUT[-1][1] if OUT else ""
+confirm = ([t for (to, t) in OUT if to == "971559999999"] or [""])[-1]
 check("EN customer (both) -> English confirm", "Order" in confirm or "confirmed" in confirm.lower())
 check("EN customer (both) -> no Arabic in confirm", not AR.search(confirm), confirm[:60])
 
@@ -102,7 +102,7 @@ reset_state()
 cfg = mk_cfg(language="both")
 df._handle_text(cfg, "chan", "971558888888", "أريد طماطم")
 df._handle_text(cfg, "chan", "971558888888", "نعم")
-confirm = OUT[-1][1] if OUT else ""
+confirm = ([t for (to, t) in OUT if to == "971558888888"] or [""])[-1]
 check("AR customer (both) -> Arabic confirm", bool(AR.search(confirm)))
 check("AR customer (both) -> no English 'Order confirmed'", "Order confirmed" not in confirm, confirm[:60])
 
@@ -394,7 +394,7 @@ df.ai_reply = lambda c, h, s: ("Riepilogo: 1 cabana VIP domani. Totale 80 EUR. C
 df.extract_record = lambda c, h: {"customer_name": "Marco", "service": "VIP Cabana", "date": "tomorrow", "people": "2", "total": "80"}
 df._handle_text(bcfg, "chan", "393331112222", "Vorrei prenotare una cabana per domani")
 df._handle_text(bcfg, "chan", "393331112222", "sì")
-conf = OUT[-1][1] if OUT else ""
+conf = ([t for (to, t) in OUT if to == "393331112222"] or [""])[-1]
 check("booking confirmed message + BKG id", "Booking confirmed" in conf and "BKG" in conf, conf[:70])
 saved_b = df._get_db().orders.find_one({"order_id": {"$exists": True}})
 check("booking saved with service field", any(o.get("service") == "VIP Cabana" for o in df._get_db().orders.docs))
@@ -508,6 +508,32 @@ check("'speak to a human' still escalates", df.wants_human("I want to speak to a
 check("'refund' still escalates", df.wants_human("I need a refund now"))
 lead_fields = df.get_extraction_fields(mk_cfg(language="multi", flow_type="custom"))
 check("lead flow captures email", "email" in lead_fields and "customer_name" in lead_fields, str(lead_fields))
+
+
+# ============ new-lead notifications (WhatsApp + email) ============
+reset_state()
+ncfg = mk_cfg(language="english", flow_type="custom")  # custom -> lead flow
+df._get_db().users.docs.clear()
+df.ensure_user("owner@ai.com"); df.set_user_client("owner@ai.com", "t1")  # cfg.client_id == t1
+df.ai_reply = lambda c, h, s: ("Summary. Confirm?", True)
+df.extract_record = lambda c, h: {"customer_name": "MA", "email": "ma@x.com",
+                                  "phone": "9715", "interest": "WhatsApp AI Agent"}
+os.environ["RESEND_API_KEY"] = "re_test"
+emails = []
+_real_req = df.requests
+df.requests = _types.SimpleNamespace(
+    post=lambda url, **k: (emails.append({"url": url, "to": (k.get("json") or {}).get("to")})
+                           or _types.SimpleNamespace(status_code=200, text="ok")))
+df._handle_text(ncfg, "chan", "971559999999", "I want an AI agent")
+df._handle_text(ncfg, "chan", "971559999999", "yes")
+df.requests = _real_req
+os.environ.pop("RESEND_API_KEY", None)
+esc_msgs = [t for (to, t) in OUT if to == "971500000000"]
+check("new lead -> WhatsApp alert to escalation number",
+      any("New lead" in t and "ma@x.com" in t for t in esc_msgs), str(esc_msgs)[:90])
+check("new lead -> email alert to owner",
+      any(str(e["url"]).endswith("/emails") and e["to"] == ["owner@ai.com"] for e in emails),
+      str(emails)[:120])
 
 
 # ============ REPORT ============

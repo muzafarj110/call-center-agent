@@ -1558,6 +1558,66 @@ def _handle_text(cfg: ClientConfig, channel_key: str, wa_id: str, raw_text: str)
     deliver(cfg, wa_id, reply_text)
 
 
+def _owner_email_for(client_id: str) -> str:
+    try:
+        doc = _get_db().clients.find_one({"client_id": client_id}, {"owner_email": 1, "_id": 0})
+        if doc and doc.get("owner_email"):
+            return doc["owner_email"]
+        u = _get_db().users.find_one({"client_id": client_id}, {"email": 1, "_id": 0})
+        return (u or {}).get("email", "")
+    except Exception:
+        return ""
+
+
+_NOTIFY_FIELDS = ["customer_name", "patient_name", "service", "interest", "items",
+                  "email", "phone", "date", "end_date", "time", "people", "total",
+                  "quantity_or_budget", "appointment_date", "appointment_time",
+                  "delivery_address", "notes"]
+
+
+def _record_summary(record: dict) -> list[str]:
+    out = []
+    for k in _NOTIFY_FIELDS:
+        v = record.get(k)
+        if v:
+            out.append(f"{k.replace('_', ' ').title()}: {v}")
+    return out
+
+
+def _notify_new_record(cfg: ClientConfig, wa_id: str, record_id: str, record: dict) -> None:
+    """Alert the business of a new lead/order/booking: WhatsApp to the escalation
+    number + email to the owner. Best-effort — never breaks the customer flow."""
+    kind = {"lead": "lead", "appointment": "booking",
+            "booking": "booking"}.get(cfg.flow_family, "order")
+    summary = _record_summary(record) or [f"From: {wa_id}"]
+    if cfg.escalation_number:
+        text = (f"🔔 New {kind} — {cfg.business_name}\nRef: {record_id}\n"
+                + "\n".join(summary) + f"\nWhatsApp: {wa_id}")
+        try:
+            deliver(cfg, cfg.escalation_number, text)
+        except Exception as exc:
+            print(f"[notify] whatsapp failed: {exc}")
+    key = os.environ.get("RESEND_API_KEY")
+    to_email = _owner_email_for(cfg.client_id) or os.environ.get("LEADS_TO", "")
+    if key and to_email:
+        items = "".join(f"<li>{s}</li>" for s in summary)
+        html = (f"<div style='font-family:sans-serif'>"
+                f"<h2>New {kind} — {cfg.business_name}</h2>"
+                f"<p>Reference: <b>{record_id}</b></p><ul>{items}</ul>"
+                f"<p style='color:#888'>WhatsApp: {wa_id}</p></div>")
+        try:
+            requests.post("https://api.resend.com/emails",
+                          headers={"Authorization": f"Bearer {key}",
+                                   "Content-Type": "application/json"},
+                          json={"from": os.environ.get(
+                                    "RESEND_FROM", "AIBusinessAutomation <onboarding@resend.dev>"),
+                                "to": [to_email],
+                                "subject": f"New {kind} {record_id} — {cfg.business_name}",
+                                "html": html}, timeout=10)
+        except Exception as exc:
+            print(f"[notify] email failed: {exc}")
+
+
 def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
     try:
         record = extract_record(cfg, sess.history)
@@ -1608,6 +1668,7 @@ def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
     sess.pending_confirmation = False
     sess.history = []  # fresh cart next time; customer memory persists in DB
     deliver(cfg, wa_id, msg)
+    _notify_new_record(cfg, wa_id, record_id, record)
 
 
 def _escalate_customer(cfg: ClientConfig, wa_id: str, body: str) -> None:
