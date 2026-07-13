@@ -68,6 +68,14 @@
   .order .det{margin-top:6px;font-size:14px;}
   .order select{width:auto;padding:6px 10px;font-size:13px;margin-top:8px;}
   .empty{text-align:center;color:var(--muted);padding:30px;}
+  .tablewrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:14px;}
+  .otable{width:100%;border-collapse:collapse;font-size:13px;min-width:820px;}
+  .otable th{text-align:left;background:var(--soft);color:var(--muted);font-weight:700;font-size:12px;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .otable td{padding:11px 12px;border-bottom:1px solid #f1f5f3;vertical-align:top;}
+  .otable tr:hover td{background:#fafdfb;}
+  .otable a{color:var(--green-d);text-decoration:none;}
+  .otable .tsub{color:var(--muted);font-size:11.5px;margin-top:2px;}
+  .otable select{padding:5px 8px;font-size:12px;border:1px solid var(--line);border-radius:8px;}
   .hidden{display:none;}
   @media(max-width:520px){.types{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:1fr 1fr 1fr;}}
 </style>
@@ -444,26 +452,35 @@
     const list=DATA[TAB]||[];
     const el=document.getElementById("orderList");
     if(!list.length){ el.innerHTML='<div class="empty">Nothing here yet.</div>'; return; }
-    el.innerHTML=list.map(o=>{
-      const name = o.customer_name||o.patient_name||"";
-      const det = o.interest||o.items||o.service||o.specialty||"";
-      const phone = o.phone||"";
-      const rows = [
-        name && `<b>${esc(name)}</b>`,
-        det && ('📝 '+esc(det)+(o.total?' — <b>'+esc(o.total)+'</b>':'')),
-        o.email && ('✉️ '+esc(o.email)),
-        phone && ('📱 '+esc(phone)),
-        [o.address,o.date,o.end_date,o.time,o.people,o.appointment_date,o.appointment_time,o.quantity_or_budget,o.notes].filter(Boolean).map(esc).join(' · ')
-      ].filter(Boolean).map(r=>'<div class="det">'+r+'</div>').join("");
-      return `<div class="order">
-        <div class="oid">${esc(o.order_id||"")} <span style="font-weight:400;color:var(--muted)">· ${esc(o.created_at||"")}</span></div>
-        ${rows}
-        <select onchange="setStatus('${esc(o.order_id)}',this.value)">
-          <option value="">Status: ${esc(o.status||'New')} ▾</option>
-          <option>New</option><option>Preparing</option><option>Out for delivery</option>
-          <option>Delivered</option><option>Completed</option><option>Cancelled</option>
-        </select></div>`;
+    const rows=list.map((o,i)=>{
+      const name=o.customer_name||o.patient_name||"";
+      const service=o.interest||o.service||o.items||o.specialty||"";
+      const goal=o.goal||o.notes||"";
+      const biz=o.business||"";
+      const email=o.email||"";
+      const phone=o.phone||"";
+      const extra=[o.date,o.end_date,o.time,o.people,o.appointment_date,o.appointment_time,o.delivery_address,o.quantity_or_budget].filter(Boolean).map(esc).join(" · ");
+      const st=o.status||"New";
+      const digits=phone.replace(/[^0-9]/g,"");
+      return `<tr>
+        <td>${i+1}</td>
+        <td><b>${esc(o.order_id||"")}</b><div class="tsub">${esc(o.created_at||"")}</div></td>
+        <td>${esc(name)||'—'}</td>
+        <td>${esc(biz)||'—'}</td>
+        <td>${esc(service)||'—'}${o.total?'<div class="tsub">Total: '+esc(o.total)+'</div>':''}${extra?'<div class="tsub">'+extra+'</div>':''}</td>
+        <td>${esc(goal)||'—'}</td>
+        <td>${email?'<a href="mailto:'+esc(email)+'">'+esc(email)+'</a>':'—'}</td>
+        <td>${phone?'<a href="https://wa.me/'+esc(digits)+'" target="_blank">'+esc(phone)+'</a>':'—'}</td>
+        <td><select onchange="setStatus('${esc(o.order_id)}',this.value)">
+          <option value="">${esc(st)} ▾</option>
+          <option>New</option><option>Contacted</option><option>In progress</option>
+          <option>Completed</option><option>Cancelled</option>
+        </select></td>
+      </tr>`;
     }).join("");
+    el.innerHTML=`<div class="tablewrap"><table class="otable">
+      <thead><tr><th>#</th><th>Ref</th><th>Name</th><th>Business</th><th>Service wanted</th><th>Goal</th><th>Email</th><th>Phone</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
   }
   async function setStatus(orderId,status){
     if(!status) return;

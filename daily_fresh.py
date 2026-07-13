@@ -498,8 +498,8 @@ EXTRACTION_FIELDS = {
                       "delivery_charge", "total", "delivery_address", "phone"],
     FLOW_APPOINTMENT: ["patient_name", "patient_id", "specialty",
                        "appointment_date", "appointment_time", "phone"],
-    FLOW_LEAD: ["customer_name", "email", "phone", "interest",
-                "quantity_or_budget", "notes"],
+    FLOW_LEAD: ["customer_name", "business", "email", "phone", "interest",
+                "goal", "quantity_or_budget", "notes"],
     FLOW_BOOKING: ["customer_name", "service", "date", "end_date", "time",
                    "people", "total", "notes", "phone"],
 }
@@ -1570,10 +1570,10 @@ def _owner_email_for(client_id: str) -> str:
         return ""
 
 
-_NOTIFY_FIELDS = ["customer_name", "patient_name", "service", "interest", "items",
-                  "email", "phone", "date", "end_date", "time", "people", "total",
-                  "quantity_or_budget", "appointment_date", "appointment_time",
-                  "delivery_address", "notes"]
+_NOTIFY_FIELDS = ["customer_name", "patient_name", "business", "service", "interest",
+                  "items", "goal", "email", "phone", "date", "end_date", "time",
+                  "people", "total", "quantity_or_budget", "appointment_date",
+                  "appointment_time", "delivery_address", "notes"]
 
 
 def _record_summary(record: dict) -> list[str]:
