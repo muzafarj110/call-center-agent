@@ -556,6 +556,30 @@ check("email alert escapes injected HTML (no raw <script>)",
       "<script>" not in _h and "&lt;script&gt;" in _h, _h[:90])
 
 
+# ============ WhatsApp template path (works outside 24h window) ============
+reset_state()
+tcfg = mk_cfg(language="english", flow_type="custom")
+tcfg.transport = "zernio"; tcfg.zernio_account_id = "ACCT"
+df.ZERNIO_API_KEY = "z"
+os.environ["NOTIFY_TEMPLATE"] = "new_lead"
+os.environ.pop("RESEND_API_KEY", None)  # isolate: only the template call should hit requests
+df.ai_reply = lambda c, h, s: ("ok?", True)
+df.extract_record = lambda c, h: {"customer_name": "T", "email": "t@x.com", "phone": "9715"}
+tcalls = []
+_r3 = df.requests
+df.requests = _types.SimpleNamespace(
+    post=lambda url, **k: (tcalls.append((url, k.get("json") or {}))
+                           or _types.SimpleNamespace(status_code=200, text="ok")))
+df._handle_text(tcfg, "chan", "971556000000", "hi")
+df._handle_text(tcfg, "chan", "971556000000", "yes")
+df.requests = _r3
+os.environ.pop("NOTIFY_TEMPLATE", None); df.ZERNIO_API_KEY = ""
+used_template = any(isinstance(j, dict) and j.get("template", {}).get("name") == "new_lead" for _u, j in tcalls)
+check("manager alert uses WhatsApp template when configured (24h-proof)", used_template, str(tcalls)[:120])
+check("template path avoids free-form deliver on success",
+      not any(to == "971500000000" for to, _t in OUT), str(OUT)[:80])
+
+
 # ============ REPORT ============
 print("\n==== TEST RESULTS ====")
 passed = 0

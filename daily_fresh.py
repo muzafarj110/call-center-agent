@@ -1585,31 +1585,26 @@ def _record_summary(record: dict) -> list[str]:
     return out
 
 
-def _notify_new_record(cfg: ClientConfig, wa_id: str, record_id: str, record: dict) -> None:
-    """Alert the business of a new lead/order/booking: WhatsApp to the escalation
-    number + email to the owner. Best-effort — never breaks the customer flow."""
-    kind = {"lead": "lead", "appointment": "booking",
-            "booking": "booking"}.get(cfg.flow_family, "order")
-    summary = _record_summary(record) or [f"From: {wa_id}"]
-    if cfg.escalation_number:
-        text = (f"🔔 New {kind} — {cfg.business_name}\nRef: {record_id}\n"
-                + "\n".join(summary) + f"\nWhatsApp: {wa_id}")
-        try:
-            deliver(cfg, cfg.escalation_number, text)
-        except Exception as exc:
-            print(f"[notify] whatsapp failed: {exc}")
+def _notify_email(cfg: ClientConfig, wa_id: str, record_id: str,
+                  summary: list, kind: str) -> bool:
+    """PRIMARY alert channel: email the business owner. Reliable — no WhatsApp
+    24h-window limits. Returns True if the email was accepted."""
     key = os.environ.get("RESEND_API_KEY")
     to_email = _owner_email_for(cfg.client_id) or os.environ.get("LEADS_TO", "")
-    if key and to_email:
-        # Escape everything customer-supplied — names/notes flow into the owner's
-        # inbox and must not inject HTML.
-        items = "".join(f"<li>{html.escape(s)}</li>" for s in summary)
-        body_html = (f"<div style='font-family:sans-serif'>"
-                     f"<h2>New {kind} — {html.escape(cfg.business_name)}</h2>"
-                     f"<p>Reference: <b>{html.escape(record_id)}</b></p><ul>{items}</ul>"
-                     f"<p style='color:#888'>WhatsApp: {html.escape(wa_id)}</p></div>")
-        try:
-            requests.post("https://api.resend.com/emails",
+    if not key:
+        print("[notify] email skipped — RESEND_API_KEY not set")
+        return False
+    if not to_email:
+        print(f"[notify] email skipped — no owner email for {cfg.client_id}")
+        return False
+    # Escape everything customer-supplied — names/notes flow into the owner inbox.
+    items = "".join(f"<li>{html.escape(s)}</li>" for s in summary)
+    body_html = (f"<div style='font-family:sans-serif'>"
+                 f"<h2>New {kind} — {html.escape(cfg.business_name)}</h2>"
+                 f"<p>Reference: <b>{html.escape(record_id)}</b></p><ul>{items}</ul>"
+                 f"<p style='color:#888'>WhatsApp: {html.escape(wa_id)}</p></div>")
+    try:
+        r = requests.post("https://api.resend.com/emails",
                           headers={"Authorization": f"Bearer {key}",
                                    "Content-Type": "application/json"},
                           json={"from": os.environ.get(
@@ -1617,8 +1612,80 @@ def _notify_new_record(cfg: ClientConfig, wa_id: str, record_id: str, record: di
                                 "to": [to_email],
                                 "subject": f"New {kind} {record_id} — {cfg.business_name}",
                                 "html": body_html}, timeout=10)
-        except Exception as exc:
-            print(f"[notify] email failed: {exc}")
+        ok = r.status_code < 300
+        print(f"[notify] email {'sent to ' + to_email if ok else 'failed ' + str(r.status_code)}")
+        return ok
+    except Exception as exc:
+        print(f"[notify] email error: {exc}")
+        return False
+
+
+def _send_whatsapp_template(cfg: ClientConfig, to: str, text: str) -> bool:
+    """Send a WhatsApp *template* message so manager alerts work OUTSIDE the 24h
+    window. Requires an approved template (env NOTIFY_TEMPLATE) with a single
+    body variable {{1}}. Returns True on apparent success, False if not
+    configured or the send failed."""
+    name = os.environ.get("NOTIFY_TEMPLATE", "")
+    lang = os.environ.get("NOTIFY_TEMPLATE_LANG", "en")
+    if not name:
+        return False
+    body = text[:1000]
+    try:
+        if cfg.transport == "zernio":
+            if not ZERNIO_API_KEY:
+                return False
+            payload = {"accountId": cfg.zernio_account_id, "platform": "whatsapp", "to": to,
+                       "template": {"name": name, "language": lang,
+                                    "components": [{"type": "body",
+                                                    "parameters": [{"type": "text", "text": body}]}]}}
+            r = requests.post(f"{ZERNIO_BASE}/v1/messages", json=payload,
+                              headers={"Authorization": f"Bearer {ZERNIO_API_KEY}",
+                                       "Content-Type": "application/json"}, timeout=12)
+        else:
+            token = get_whatsapp_token(cfg.phone_number_id)
+            pnid = cfg.phone_number_id or DEFAULT_PHONE_ID
+            if not token or not pnid:
+                return False
+            payload = {"messaging_product": "whatsapp", "to": to, "type": "template",
+                       "template": {"name": name, "language": {"code": lang},
+                                    "components": [{"type": "body",
+                                                    "parameters": [{"type": "text", "text": body}]}]}}
+            r = requests.post(f"{GRAPH_URL}/{pnid}/messages", json=payload,
+                              headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        ok = r.status_code < 300
+        print(f"[notify] whatsapp template {'ok' if ok else 'failed ' + str(r.status_code)}: {r.text[:150]}")
+        return ok
+    except Exception as exc:
+        print(f"[notify] whatsapp template error: {exc}")
+        return False
+
+
+def _notify_new_record(cfg: ClientConfig, wa_id: str, record_id: str, record: dict) -> None:
+    """Alert the business of a new lead/order/booking. EMAIL is the primary,
+    reliable channel; WhatsApp is best-effort (template first so it works outside
+    the 24h window, else free-form). Never breaks the customer flow."""
+    kind = {"lead": "lead", "appointment": "booking",
+            "booking": "booking"}.get(cfg.flow_family, "order")
+    summary = _record_summary(record) or [f"From: {wa_id}"]
+
+    # 1) EMAIL — primary
+    _notify_email(cfg, wa_id, record_id, summary, kind)
+
+    # 2) WHATSAPP — best-effort, always logged
+    if not cfg.escalation_number:
+        return
+    text = (f"🔔 New {kind} — {cfg.business_name}\nRef: {record_id}\n"
+            + "\n".join(summary) + f"\nWhatsApp: {wa_id}")
+    if _send_whatsapp_template(cfg, cfg.escalation_number, text):
+        print("[notify] whatsapp alert delivered via approved template")
+        return
+    # No template (or it failed) -> free-form only reaches the manager if they
+    # messaged the business number within the last 24h.
+    try:
+        deliver(cfg, cfg.escalation_number, text)
+        print("[notify] whatsapp alert attempted free-form (delivers only within 24h window)")
+    except Exception as exc:
+        print(f"[notify] whatsapp free-form failed: {exc}")
 
 
 def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
