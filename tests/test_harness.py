@@ -380,6 +380,17 @@ for raw, exp in [("beach club", "booking"), ("guesthouse", "booking"), ("boat to
 check("language 'multi' recognized", df.normalize_language("multi") == "multi")
 check("language 'auto' -> multi", df.normalize_language("auto") == "multi")
 
+# real-estate luxury closer prompt
+recfg = mk_cfg(flow_type="real estate")
+resp = df.build_system_prompt(recfg, items_text="Marina Penthouse - 4BR sea view - 8,500,000 AED")
+check("real-estate prompt uses closer personality (exclusivity)", "exclusiv" in resp.lower())
+check("real-estate prompt qualifies budget/timeline/investment",
+      "budget" in resp.lower() and "timeline" in resp.lower() and "investment" in resp.lower())
+check("real-estate prompt pivots to specialist call CTA",
+      "specialist" in resp.lower() and recfg.escalation_number in resp)
+check("real-estate prompt never lets convo die", "just die" in resp.lower() and "re-engage" in resp.lower())
+check("real-estate items labeled as LISTINGS", "AVAILABLE LISTINGS" in resp)
+
 # booking prompt + multilingual rule
 bcfg = mk_cfg(language="multi", flow_type="beach club")
 sp = df.build_system_prompt(bcfg, items_text="VIP Cabana - 80\nSunbed - 15")
@@ -578,6 +589,91 @@ used_template = any(isinstance(j, dict) and j.get("template", {}).get("name") ==
 check("manager alert uses WhatsApp template when configured (24h-proof)", used_template, str(tcalls)[:120])
 check("template path avoids free-form deliver on success",
       not any(to == "971500000000" for to, _t in OUT), str(OUT)[:80])
+
+
+# ============ VOICE AGENT (inbound chat-to-call funnel) ============
+reset_state()
+_act, vcid = df.upsert_client_db({
+    "business_name": "Marina Realty", "business_type": "real estate",
+    "language": "english", "escalation_number": "971544007555",
+    "phone_number_id": "VOICEPN",
+})
+os.environ["VOICE_CLIENT_ID"] = vcid
+vcfg = df.client_by_id(vcid)
+
+# fresh call, no prior chat -> generic advisor greeting, gathers speech, no "call us" leak
+request.set(method="POST", form={"From": "+971559991111", "To": "+15550009999"}, headers={})
+resp = df.voice_incoming()
+xml = resp.get_data(as_text=True)
+check("voice/incoming greets + gathers speech (fresh caller)",
+      "<Gather" in xml and "advisor" in xml.lower() and "call us" not in xml.lower(), xml[:160])
+
+# same customer already has a WhatsApp session -> voice picks up the SAME context
+vkey = df._voice_channel_key(vcfg)
+prior = df.get_session(vkey, "971559991111")
+prior.customer_name = "Sara"
+prior.add("user", "Hi, I'm looking for a 2BR investment near the marina, budget 3M AED")
+prior.add("assistant", "The Marina Penthouse fits perfectly - shall I tell you more?")
+
+request.set(method="POST", form={"From": "+971559991111", "To": "+15550009999"}, headers={})
+resp = df.voice_incoming()
+xml = resp.get_data(as_text=True)
+check("voice/incoming resumes existing WhatsApp chat context",
+      "Sara" in xml and ("where we left off" in xml.lower() or "right here" in xml.lower()), xml[:200])
+check("shared session carries the WhatsApp history into the call",
+      len(prior.history) >= 3, len(prior.history))
+
+# a normal call turn: AI not ready yet -> speaks reply, re-gathers, never says "call us"
+df.ai_reply = lambda c, h, s: ("Wonderful, I can hold that unit for you today. Shall I lock it in?", False)
+request.set(method="POST", form={"From": "+971559991111", "To": "+15550009999",
+            "SpeechResult": "Yes I'm very interested, tell me more"}, headers={})
+resp = df.voice_respond()
+xml = resp.get_data(as_text=True)
+check("voice/respond speaks AI reply and re-gathers the next turn",
+      "<Gather" in xml and "lock it in" in xml, xml[:200])
+
+# explicit request for a human mid-call -> warm-transfer via <Dial>, not a cold hangup
+request.set(method="POST", form={"From": "+971559991111", "To": "+15550009999",
+            "SpeechResult": "I want to speak to a human"}, headers={})
+resp = df.voice_respond()
+xml = resp.get_data(as_text=True)
+check("voice/respond warm-transfers an explicit human request via <Dial>",
+      "<Dial>+971544007555</Dial>" in xml, xml[:200])
+
+# full close on the call: AI reaches READY, caller confirms -> lead saved + warm-transferred
+reset_state()
+os.environ["VOICE_CLIENT_ID"] = vcid
+df.ai_reply = lambda c, h, s: ("Summary: 2BR Marina Penthouse, 3M AED budget. Shall I lock this in?", True)
+df.extract_record = lambda c, h: {"customer_name": "Omar", "business": "", "email": "omar@x.com",
+                                  "phone": "", "interest": "Marina Penthouse", "goal": "investment",
+                                  "quantity_or_budget": "3M AED", "notes": ""}
+request.set(method="POST", form={"From": "+971559993333", "To": "+15550009999"}, headers={})
+df.voice_incoming()
+request.set(method="POST", form={"From": "+971559993333", "To": "+15550009999",
+            "SpeechResult": "I'm very interested, what's the next step"}, headers={})
+df.voice_respond()
+request.set(method="POST", form={"From": "+971559993333", "To": "+15550009999",
+            "SpeechResult": "yes"}, headers={})
+resp = df.voice_respond()
+xml = resp.get_data(as_text=True)
+check("voice call confirmation saves the lead and warm-transfers to the specialist",
+      "<Dial>+971544007555</Dial>" in xml, xml[:200])
+check("voice-confirmed lead alerts the escalation WhatsApp number",
+      any(to == "971544007555" and "New lead" in t and "Omar" in t for to, t in OUT), str(OUT)[-250:])
+
+# Twilio signature: bad signature with a token configured -> reject
+df.TWILIO_TOKEN = "secret_token"
+request.set(method="POST", form={"From": "+971559994444", "To": "+15550009999"},
+            headers={"X-Twilio-Signature": "bogus"}, url="https://example.com/voice/incoming")
+try:
+    df.voice_incoming()
+    sig_rejected = False
+except HTTPAbort as e:
+    sig_rejected = (e.code == 403)
+check("voice webhook rejects a bad Twilio signature when TWILIO_AUTH_TOKEN is set", sig_rejected)
+df.TWILIO_TOKEN = ""
+
+os.environ.pop("VOICE_CLIENT_ID", None)
 
 
 # ============ REPORT ============

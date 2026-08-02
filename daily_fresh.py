@@ -33,6 +33,7 @@ and run a full order end-to-end before deploying to production.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import html
@@ -50,7 +51,7 @@ from datetime import datetime
 from typing import Optional
 
 import requests
-from flask import Flask, request, jsonify, abort
+from flask import Flask, request, jsonify, abort, Response
 from flask_cors import CORS
 
 try:
@@ -393,6 +394,68 @@ makes a complaint — never for normal sales questions. Be warm and consultative
 you are here to sell and to capture the lead, not to hand it off."""
 
 
+def _real_estate_flow(cfg: ClientConfig) -> str:
+    call_line = (
+        f"Call {cfg.escalation_number} to speak with our property specialist — "
+        "they have exclusive listings not shown online."
+        if cfg.escalation_number
+        else "Ask for a callback from our property specialist — they have exclusive "
+        "listings not shown online."
+    )
+    return f"""ROLE: You are the senior property advisor for {cfg.business_name} — a
+world-class luxury real-estate closer, not a generic chatbot. Every buyer who messages
+you should feel they've reached a trusted insider with access to the best inventory in
+the market, and that this property will not wait for them.
+
+SALES PERSONALITY:
+- Exclusivity: speak as if you personally guard a short list of the best units.
+  "This one rarely comes to market." "We only have a couple left at this price point."
+- Emotional anchoring: sell the LIFESTYLE before the specs. Sensory, vivid language —
+  "the sun-drenched terrace," "waking up to that sea view," "marble finished by hand."
+  Never dump bullet-point specs; weave them into a picture the customer can feel.
+- Scarcity & urgency, always truthful — never invent numbers, but lean on what's real:
+  limited units, interest from other buyers, a price review coming.
+- Consultative authority: reference neighbourhood knowledge, comparable sales, and
+  ROI / appreciation trends like a seasoned market expert buyers can trust.
+- Soft close every single exchange: move the conversation toward a viewing, a hold, or
+  the specialist call. Never end a reply on a dead end — always offer the next step.
+- Objection handling: reframe price with value/appreciation, reframe distance with
+  lifestyle and access, reframe hesitation with gentle urgency ("I can hold this
+  informally for you while you decide").
+
+FLOW:
+1. Open with a warm, exclusive greeting — position yourself as their personal property
+   advisor, not a sales bot.
+2. Qualify the lead conversationally, ONE question at a time — never dump a list:
+   - what they're looking for (property type / location / must-haves)
+   - budget range
+   - timeline (just browsing, or ready to move in weeks/months?)
+   - investment or primary residence
+   - their name, and the best email + WhatsApp number to reach them
+3. Present matching properties from the LISTINGS below using emotional + financial
+   hooks — lifestyle language plus concrete numbers (price, ROI/appreciation, yield)
+   when they appear in the listing data. Never invent details not in the listings.
+4. Handle objections with market knowledge and reframing (see SALES PERSONALITY).
+5. The MOMENT genuine interest is confirmed (they ask for a viewing, say they like a
+   unit, ask how to move forward, etc.), pivot to the close:
+   "{call_line}"
+   This is the goal of every qualified conversation — don't skip it once interest is
+   real, and don't rush to it before interest is real.
+6. If the customer goes quiet or non-committal, re-engage rather than dropping the
+   thread — a price update, a new comparable listing, or market news. Never let the
+   conversation just die; always leave a hook for them to come back to.
+7. Read back a short summary (name, what they want, budget, email, phone) before the
+   system's final YES/NO confirmation step captures the lead. Do NOT finalize yourself.
+
+COLLECT before confirming: customer name, email, phone, what they're looking for,
+budget/timeline, investment vs residence.
+Only escalate for a genuine complaint or an explicit request for a human outside the
+specialist-call flow above — step 5's call CTA IS the escalation path for hot leads.
+DO NOT invent property details, prices, or availability that are not in the LISTINGS
+below — exclusivity and urgency must always be truthful framing of real facts, never
+fabricated ones."""
+
+
 def _booking_flow(cfg: ClientConfig) -> str:
     return f"""ROLE: You take reservations and bookings for {cfg.business_name} ({cfg.canonical_type}).
 
@@ -431,7 +494,10 @@ _FLOW_BUILDERS = {
 
 
 def generate_system_prompt(cfg: ClientConfig, available_slots: str = "") -> str:
-    flow_block = _FLOW_BUILDERS.get(cfg.flow_family, _lead_flow)(cfg)
+    if cfg.canonical_type == "real_estate":
+        flow_block = _real_estate_flow(cfg)
+    else:
+        flow_block = _FLOW_BUILDERS.get(cfg.flow_family, _lead_flow)(cfg)
     language_block = _LANGUAGE_RULES.get(cfg.language, _LANGUAGE_RULES["both"])
 
     if cfg.flow_family == FLOW_RESTAURANT:
@@ -440,6 +506,8 @@ def generate_system_prompt(cfg: ClientConfig, available_slots: str = "") -> str:
         items_label = "SERVICES / SPECIALTIES"
     elif cfg.flow_family == FLOW_BOOKING:
         items_label = "SERVICES / RATES"
+    elif cfg.canonical_type == "real_estate":
+        items_label = "AVAILABLE LISTINGS"
     else:
         items_label = "PRODUCTS"
     items_block = cfg.products.strip() or "(No items loaded — ask the customer and escalate if unsure.)"
@@ -1688,7 +1756,7 @@ def _notify_new_record(cfg: ClientConfig, wa_id: str, record_id: str, record: di
         print(f"[notify] whatsapp free-form failed: {exc}")
 
 
-def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
+def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> Optional[str]:
     try:
         record = extract_record(cfg, sess.history)
     except Exception as exc:
@@ -1708,11 +1776,11 @@ def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
             record_id = save_record(cfg.client_id, fields, record, id_prefix=prefix)
     except Exception as exc:
         print(f"[finalize] save failed: {exc}")
-        deliver(cfg, wa_id,
-                "I couldn't save that just now — our team has been notified."
-                if cfg.language != "arabic"
-                else "تعذّر حفظ الطلب الآن — تم إبلاغ فريقنا.")
-        return
+        fail_msg = ("I couldn't save that just now — our team has been notified."
+                    if cfg.language != "arabic"
+                    else "تعذّر حفظ الطلب الآن — تم إبلاغ فريقنا.")
+        deliver(cfg, wa_id, fail_msg)
+        return None
 
     name = record.get("customer_name") or record.get("patient_name") or sess.customer_name
     addr = record.get("delivery_address") or sess.saved_address
@@ -1739,6 +1807,7 @@ def _finalize(cfg: ClientConfig, wa_id: str, sess: Session) -> None:
     sess.history = []  # fresh cart next time; customer memory persists in DB
     deliver(cfg, wa_id, msg)
     _notify_new_record(cfg, wa_id, record_id, record)
+    return msg
 
 
 def _escalate_customer(cfg: ClientConfig, wa_id: str, body: str) -> None:
@@ -2717,6 +2786,206 @@ def enquiry():
 
     return {"success": True, "channel": channel, "responded": responded,
             "note": note}, 200
+
+
+# ===========================================================================
+# 12. VOICE AGENT — inbound chat-to-call funnel (Twilio Voice + Claude)
+# ===========================================================================
+# Stage 1 (WhatsApp) qualifies and builds desire, then the AI tells the
+# customer to call TWILIO_VOICE_NUMBER. Stage 2 (here) answers that call,
+# picks up the SAME Session (keyed by channel + phone, shared with WhatsApp)
+# so the voice agent has the full chat context, and closes using the same
+# sales personality. Inbound-only: we never place outbound sales calls.
+#
+# Uses Twilio's built-in speech recognition (<Gather input="speech">) and
+# text-to-speech (<Say>) — no separate STT/TTS/websocket-streaming service
+# needed, which is what makes this the fastest path to ship versus a
+# dedicated voice-AI platform (Vapi/Retell/Bland): it reuses the Twilio
+# account already wired up for /enquiry's call channel, stays inside this
+# one Flask app, and is testable offline like the rest of the platform.
+_VOICE_CONTROL_SUFFIX = _CONTROL_SUFFIX + """
+
+PHONE CALL MODE (critical):
+You are speaking on a LIVE PHONE CALL, not WhatsApp — your words are read aloud by
+text-to-speech. Rules:
+- No markdown, no bullet points, no emojis, no line breaks. Plain spoken sentences.
+- Keep replies SHORT — one to three sentences per turn, like a real phone call.
+- The customer is ALREADY ON THE CALL with your specialist (you). NEVER tell them to
+  "call [number]" or "call us" — that instruction does not apply on a live call.
+  Instead close directly: confirm details and move toward the final confirmation.
+- If the conversation history already contains earlier chat messages, that's context
+  from before they called — don't re-ask what's already answered, acknowledge it and
+  move forward naturally."""
+
+
+def _voice_channel_key(cfg: ClientConfig) -> str:
+    return cfg.phone_number_id or cfg.zernio_account_id or cfg.client_id
+
+
+def _voice_client_for(to_number: str) -> Optional[ClientConfig]:
+    """Resolve which business answers an inbound call. One Twilio voice number
+    serves one connected business for now, so this mirrors /enquiry's
+    resolution (VOICE_CLIENT_ID / ENQUIRY_CLIENT_ID, else the sole client)."""
+    del to_number  # reserved for per-number routing once multiple lines exist
+    cid = (os.environ.get("VOICE_CLIENT_ID", "").strip()
+           or os.environ.get("ENQUIRY_CLIENT_ID", "").strip()
+           or _default_client_id())
+    return client_by_id(cid) if cid else None
+
+
+def _verify_twilio_signature() -> bool:
+    """Same posture as the Meta webhook: verify only when a secret is
+    configured, so local/dev/test runs without TWILIO_AUTH_TOKEN still work."""
+    if not TWILIO_TOKEN:
+        return True
+    sig = request.headers.get("X-Twilio-Signature", "")
+    if not sig:
+        return False
+    url = getattr(request, "url", "") or ""
+    form = getattr(request, "form", None)
+    params = dict(form) if form else {}
+    data = url + "".join(f"{k}{v}" for k, v in sorted(params.items()))
+    expected = base64.b64encode(
+        hmac.new(TWILIO_TOKEN.encode(), data.encode(), hashlib.sha1).digest()
+    ).decode()
+    return hmac.compare_digest(sig, expected)
+
+
+def _polly_voice(lang: str) -> str:
+    return "Polly.Zeina" if lang == "arabic" else "Polly.Joanna-Neural"
+
+
+def _gather_lang(lang: str) -> str:
+    return "ar-AE" if lang == "arabic" else "en-US"
+
+
+def _voice_greeting(cfg: ClientConfig, sess: Session) -> str:
+    lang = _msg_lang(cfg, sess)
+    name = sess.customer_name
+    if lang == "arabic":
+        hi = f"مرحباً {name}، " if name else "مرحباً، "
+        if sess.history:
+            return hi + f"معك مستشارك من {cfg.business_name}، المحادثة اللي بدأناها معايا هنا. كيف أقدر أساعدك؟"
+        return f"أهلاً وسهلاً، معك مستشار {cfg.business_name}. كيف أقدر أساعدك اليوم؟"
+    hi = f"Hi {name}, " if name else "Hi there, "
+    if sess.history:
+        return hi + (f"this is your advisor from {cfg.business_name} — I have our "
+                     "conversation right here, let's pick up where we left off. "
+                     "How can I help?")
+    return f"Hello, this is your advisor from {cfg.business_name}. How can I help you today?"
+
+
+def _voice_twiml_gather(cfg: ClientConfig, message: str, action: str, lang: str) -> str:
+    voice = _polly_voice(lang)
+    say = f"<Say voice='{voice}'>{_xml_escape(message)}</Say>"
+    gather = (f"<Gather input='speech' action='{action}' method='POST' "
+              f"speechTimeout='auto' language='{_gather_lang(lang)}'>{say}</Gather>")
+    retry = ("Are you still there? Feel free to ask me anything."
+             if lang != "arabic" else "هل ما زلت معي؟ تفضل بسؤالك.")
+    fallback = f"<Say voice='{voice}'>{_xml_escape(retry)}</Say><Redirect method='POST'>{action}</Redirect>"
+    return f"<Response>{gather}{fallback}</Response>"
+
+
+def _voice_twiml_transfer(cfg: ClientConfig, message: str, lang: str) -> str:
+    """Speak a closing line, then warm-transfer the live call straight to the
+    human specialist (cfg.escalation_number) instead of hanging up and hoping
+    the customer calls again. Falls back to a plain hangup if unconfigured."""
+    say = f"<Say voice='{_polly_voice(lang)}'>{_xml_escape(message)}</Say>"
+    if cfg.escalation_number:
+        to = cfg.escalation_number if cfg.escalation_number.startswith("+") else "+" + cfg.escalation_number
+        return f"<Response>{say}<Dial>{_xml_escape(to)}</Dial></Response>"
+    return f"<Response>{say}<Hangup/></Response>"
+
+
+@app.post("/voice/incoming")
+def voice_incoming():
+    """Twilio Voice webhook — set as the number's 'A call comes in' URL."""
+    if not _verify_twilio_signature():
+        abort(403)
+    caller = _norm_phone(request.form.get("From", ""))
+    cfg = _voice_client_for(request.form.get("To", ""))
+    if not cfg or not caller:
+        twiml = "<Response><Say>Sorry, this number isn't connected to a business yet.</Say><Hangup/></Response>"
+        return Response(twiml, mimetype="text/xml")
+
+    sess = get_session(_voice_channel_key(cfg), caller)
+    if not sess.history:
+        existing = get_customer(cfg.client_id, caller)
+        if existing:
+            sess.customer_name = existing.get("name", "")
+            sess.saved_address = existing.get("address", "")
+
+    greeting = _voice_greeting(cfg, sess)
+    sess.add("assistant", greeting)
+    log_message(cfg.client_id, caller, "out", f"[voice] {greeting}")
+    twiml = _voice_twiml_gather(cfg, greeting, "/voice/respond", _msg_lang(cfg, sess))
+    return Response(twiml, mimetype="text/xml")
+
+
+@app.post("/voice/respond")
+def voice_respond():
+    """Twilio posts here after each <Gather> with the transcribed SpeechResult —
+    one call turn per request, mirroring _handle_text's WhatsApp turn logic."""
+    if not _verify_twilio_signature():
+        abort(403)
+    caller = _norm_phone(request.form.get("From", ""))
+    cfg = _voice_client_for(request.form.get("To", ""))
+    if not cfg or not caller:
+        return Response("<Response><Hangup/></Response>", mimetype="text/xml")
+
+    sess = get_session(_voice_channel_key(cfg), caller)
+    speech = sanitize_input(request.form.get("SpeechResult", "")).strip()
+    lang = _msg_lang(cfg, sess)
+
+    if not speech:
+        retry = ("Sorry, I didn't catch that — could you say that again?"
+                 if lang != "arabic" else "عذراً، ما سمعتك بوضوح — ممكن تعيد؟")
+        return Response(_voice_twiml_gather(cfg, retry, "/voice/respond", lang), mimetype="text/xml")
+
+    sess.add("user", speech)
+    if cfg.language == "both":
+        sess.detected_lang = detect_lang(speech)
+        lang = _msg_lang(cfg, sess)
+    log_message(cfg.client_id, caller, "in", f"[voice] {speech}")
+
+    if wants_human(speech):
+        msg = ("Of course — connecting you with our specialist right now."
+               if lang != "arabic" else "بالتأكيد — أوصلك بمختصنا الآن.")
+        sess.add("assistant", msg)
+        return Response(_voice_twiml_transfer(cfg, msg, lang), mimetype="text/xml")
+
+    if sess.pending_confirmation and is_affirmative(speech):
+        try:
+            confirm_msg = _finalize(cfg, caller, sess)
+        except Exception as exc:
+            print(f"[voice] finalize failed: {exc}")
+            confirm_msg = None
+        if confirm_msg:
+            return Response(_voice_twiml_transfer(cfg, confirm_msg, lang), mimetype="text/xml")
+        fail = ("I couldn't save that just now, let me connect you with our team."
+               if lang != "arabic" else "تعذّر الحفظ الآن، دعني أوصلك بفريقنا.")
+        return Response(_voice_twiml_transfer(cfg, fail, lang), mimetype="text/xml")
+
+    if sess.pending_confirmation and is_negative(speech):
+        sess.pending_confirmation = False
+
+    items_text = products_as_text(cfg.client_id)
+    sys_prompt = build_system_prompt(cfg, items_text=items_text) + _VOICE_CONTROL_SUFFIX
+    try:
+        reply_text, ready = ai_reply(cfg, sess.history, sys_prompt)
+    except Exception as exc:
+        print(f"[voice] ai reply failed: {exc}")
+        reply_text, ready = (
+            "Sorry, I'm having a brief technical issue — let me connect you with our team."
+            if lang != "arabic" else
+            "عذراً، لدي مشكلة تقنية بسيطة — دعني أوصلك بفريقنا.", False)
+        sess.add("assistant", reply_text)
+        return Response(_voice_twiml_transfer(cfg, reply_text, lang), mimetype="text/xml")
+
+    sess.pending_confirmation = ready
+    sess.add("assistant", reply_text)
+    log_message(cfg.client_id, caller, "out", f"[voice] {reply_text}")
+    return Response(_voice_twiml_gather(cfg, reply_text, "/voice/respond", lang), mimetype="text/xml")
 
 
 @app.get("/health")
