@@ -395,10 +395,16 @@ you are here to sell and to capture the lead, not to hand it off."""
 
 
 def _real_estate_flow(cfg: ClientConfig) -> str:
+    # Prefer the Twilio voice line so the call lands on the AI voice agent
+    # first (Stage 2 of the funnel); fall back to the raw escalation number
+    # if Twilio isn't configured yet so the CTA still works end to end.
+    cta_number = TWILIO_FROM or cfg.escalation_number
+    if cta_number and not cta_number.startswith("+"):
+        cta_number = "+" + cta_number
     call_line = (
-        f"Call {cfg.escalation_number} to speak with our property specialist — "
+        f"Call {cta_number} to speak with our property specialist — "
         "they have exclusive listings not shown online."
-        if cfg.escalation_number
+        if cta_number
         else "Ask for a callback from our property specialist — they have exclusive "
         "listings not shown online."
     )

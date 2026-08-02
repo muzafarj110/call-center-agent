@@ -391,6 +391,15 @@ check("real-estate prompt pivots to specialist call CTA",
 check("real-estate prompt never lets convo die", "just die" in resp.lower() and "re-engage" in resp.lower())
 check("real-estate items labeled as LISTINGS", "AVAILABLE LISTINGS" in resp)
 
+# once Twilio is configured, the CTA advertises the voice line (so the
+# customer's call hits the AI voice agent first) instead of the raw
+# escalation number
+df.TWILIO_FROM = "+15550001234"
+resp2 = df.build_system_prompt(recfg, items_text="Marina Penthouse - 4BR sea view - 8,500,000 AED")
+check("real-estate CTA prefers the Twilio voice line once configured",
+      "+15550001234" in resp2 and "call +15550001234" in resp2.lower())
+df.TWILIO_FROM = ""
+
 # booking prompt + multilingual rule
 bcfg = mk_cfg(language="multi", flow_type="beach club")
 sp = df.build_system_prompt(bcfg, items_text="VIP Cabana - 80\nSunbed - 15")
