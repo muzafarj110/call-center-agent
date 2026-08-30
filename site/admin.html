@@ -48,7 +48,8 @@
   <div id="gate" class="gate">
     <h2>Admin sign in</h2>
     <p class="muted" style="margin-bottom:12px;">Enter your admin secret to view clients and orders.</p>
-    <input id="secret" type="password" placeholder="ADMIN_SECRET" />
+    <input id="adm_user" type="text" placeholder="Username" autocomplete="username" required />
+    <input id="adm_pass" type="password" placeholder="Password" autocomplete="current-password" required />
     <button class="btn-primary" onclick="enter()">Sign in</button>
     <div id="gateErr" class="err"></div>
   </div>
@@ -78,13 +79,14 @@
   </div>
 
 <script>
-  const API_BASE = "https://production-call-center.up.railway.app";
-  let SECRET = "";
+  const API_BASE = "";  // relative URL
+  let USER = ""; let PASS = "";
 
-  function hdr(){ return SECRET ? {"X-Admin-Secret":SECRET} : {}; }
+  function hdr(){ return USER ? {"X-Admin-User":USER,"X-Admin-Pass":PASS} : {}; }
 
   async function enter(){
-    SECRET = document.getElementById("secret").value.trim();
+    USER = document.getElementById("adm_user").value.trim();
+    PASS = document.getElementById("adm_pass").value.trim();
     const err = document.getElementById("gateErr"); err.textContent = "";
     try{
       const res = await fetch(API_BASE + "/clients", { headers: hdr() });
