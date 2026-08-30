@@ -86,6 +86,11 @@
         <input name="name" placeholder="Full name" />
         <label>Email <span style="color:var(--green-d)">*</span></label>
         <input name="email" type="email" required placeholder="you@business.com" />
+        <label>Phone Number</label>
+        <div style="display:flex;gap:8px;">
+          <input name="country_code" placeholder="+1" style="width:90px;flex-shrink:0;" />
+          <input name="phone" type="tel" placeholder="Phone number" style="flex:1;" />
+        </div>
         <label>How can we help? <span style="color:var(--green-d)">*</span></label>
         <textarea name="message" required placeholder="Tell us about your business…"></textarea>
         <button class="btn btn-primary" id="btn" type="submit" style="margin-top:18px;">Send message</button>
