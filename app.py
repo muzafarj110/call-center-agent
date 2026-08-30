@@ -8,7 +8,6 @@ Ties together:
   sheets.py         -> products/menu (cached), customer memory, save record
   ai.py             -> Claude reply + structured extraction
   conversation.py   -> session state + Python-owned YES/NO + escalation
-
 Flow for each inbound message:
   1. Identify the client by phone_number_id. Unknown -> ignore.
   2. Load/250 the customer session.
@@ -32,7 +31,7 @@ import time
 import threading
 
 import requests
-from flask import Flask, request, jsonify, abort
+from flask import Flask, request, jsonify, abort, send_from_directory
 from flask_cors import CORS
 
 import clients
@@ -337,6 +336,20 @@ def reload_clients():
 @app.get("/health")
 def health():
     return jsonify({"status": "ok", "clients": len(clients.all_phone_number_ids())})
+
+
+# ---------------------------------------------------------------------------
+# Static site (UI)
+# ---------------------------------------------------------------------------
+SITE_DIR = os.path.join(os.path.dirname(__file__), 'site')
+
+@app.get("/")
+def index():
+    return send_from_directory(SITE_DIR, 'index.html')
+
+@app.get("/<path:filename>")
+def serve_site(filename):
+    return send_from_directory(SITE_DIR, filename)
 
 
 if __name__ == "__main__":
