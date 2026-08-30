@@ -1973,9 +1973,11 @@ def onboard():
 @app.get("/clients")
 def list_clients():
     """Admin: list active clients (no tokens). Protect with ADMIN_SECRET if set."""
-    secret = os.environ.get("ADMIN_SECRET")
-    if secret and request.headers.get("X-Admin-Secret") != secret:
-        abort(403)
+    adm_user = os.environ.get("ADMIN_USER", "")
+    adm_pass = os.environ.get("ADMIN_PASS", "")
+    if adm_user and adm_pass:
+        if request.headers.get("X-Admin-User") != adm_user or request.headers.get("X-Admin-Pass") != adm_pass:
+            abort(403)
     out = []
     try:
         # Map business -> login email from the users table (robust even for
@@ -2007,9 +2009,11 @@ def list_clients():
 
 
 def _check_admin():
-    secret = os.environ.get("ADMIN_SECRET")
-    if secret and request.headers.get("X-Admin-Secret") != secret:
-        abort(403)
+    adm_user = os.environ.get("ADMIN_USER", "")
+    adm_pass = os.environ.get("ADMIN_PASS", "")
+    if adm_user and adm_pass:
+        if request.headers.get("X-Admin-User") != adm_user or request.headers.get("X-Admin-Pass") != adm_pass:
+            abort(403)
 
 
 @app.route("/products", methods=["GET", "POST", "PUT", "DELETE"])
@@ -2078,9 +2082,11 @@ def admin_connect_zernio():
 
 @app.post("/reload-clients")
 def reload_clients_route():
-    secret = os.environ.get("ADMIN_SECRET")
-    if secret and request.headers.get("X-Admin-Secret") != secret:
-        abort(403)
+    adm_user = os.environ.get("ADMIN_USER", "")
+    adm_pass = os.environ.get("ADMIN_PASS", "")
+    if adm_user and adm_pass:
+        if request.headers.get("X-Admin-User") != adm_user or request.headers.get("X-Admin-Pass") != adm_pass:
+            abort(403)
     return jsonify({"reloaded": reload_clients()})
 
 
