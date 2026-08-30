@@ -51,7 +51,7 @@ from datetime import datetime
 from typing import Optional
 
 import requests
-from flask import Flask, request, jsonify, abort, Response
+from flask import Flask, request, jsonify, abort, Response, send_from_directory
 from flask_cors import CORS
 
 try:
@@ -2999,9 +2999,15 @@ def health():
     return jsonify({"status": "ok", "clients": len(all_phone_number_ids())})
 
 
+SITE_DIR = os.path.join(os.path.dirname(__file__), 'site')
+
 @app.get("/")
 def index():
-    return jsonify({"service": "AIBusinessAutomation WhatsApp platform", "status": "running"})
+    return send_from_directory(SITE_DIR, 'index.html')
+
+@app.get("/<path:filename>")
+def serve_site(filename):
+    return send_from_directory(SITE_DIR, filename)
 
 
 if __name__ == "__main__":
