@@ -3009,6 +3009,18 @@ def index():
 def serve_site(filename):
     return send_from_directory(SITE_DIR, filename)
 
+@app.post("/contact")
+def contact_form():
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "")
+    email = data.get("email", "")
+    message = data.get("message", "")
+    if not email or not message:
+        return jsonify({"success": False, "error": "Email and message are required."}), 400
+    print(f"[contact] name={name} email={email} message={message[:100]}")
+    return jsonify({"success": True})
+
+
 
 if __name__ == "__main__":
     print("=" * 45)
